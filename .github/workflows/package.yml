@@ -1,0 +1,30 @@
+name: Сборка приложения
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Снимок исходников для воспроизводимой сборки
+        run: |
+          mkdir -p build
+          git archive --format=zip -o build/boggart-source.zip HEAD
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: boggart-source
+          path: build/boggart-source.zip
+          retention-days: 7
+      - name: Проверки macOS
+        run: ./Scripts/check.sh
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: boggart-package-logs
+          path: build/*.log
