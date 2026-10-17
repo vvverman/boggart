@@ -69,7 +69,7 @@ final class ServiceDelegate: NSObject, NSXPCListenerDelegate {
         let peer = ServicePeer(uid: connection.effectiveUserIdentifier, runtime: runtime)
         connection.exportedInterface = NSXPCInterface(with: BoggartServiceProtocol.self)
         connection.exportedObject = peer
-        let ended = { [weak runtime] in
+        let ended: () -> Void = { [weak runtime] in
             runtime?.queue.async { [weak runtime] in runtime?.controller.disconnected(peer.identity) }
         }
         connection.interruptionHandler = ended
