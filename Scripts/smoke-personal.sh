@@ -28,6 +28,14 @@ xcrun swiftc -O -target "$(uname -m)-apple-macosx13.0" Scripts/PackageProbe.swif
     --sign "$BOGGART_CI_IDENTITY" --identifier local.boggart.app \
     --requirements "=designated => identifier \"local.boggart.app\" and certificate leaf = H\"$BOGGART_CI_CERT_DIGEST\"" "$WORK/Probe.app"
 sudo /usr/bin/ditto "$WORK/Probe.app" "$PROBE"
+# Валидная подпись, но чужой identifier: root-служба обязана отклонить клиента.
+cp "$PROBE/Contents/MacOS/Boggart" "$WORK/UnauthorizedProbe"
+/usr/bin/codesign --force --options runtime --timestamp=none --keychain "$BOGGART_CI_KEYCHAIN" \
+    --sign "$BOGGART_CI_IDENTITY" --identifier local.boggart.unauthorized "$WORK/UnauthorizedProbe"
+# Не позволяем проверкам зависеть от сертификата, доверенного только на CI.
+/usr/bin/security find-certificate -c "$BOGGART_CI_IDENTITY" -p "$BOGGART_CI_KEYCHAIN" > "$WORK/public.pem"
+sudo /usr/bin/security remove-trusted-cert -d "$WORK/public.pem"
+echo 'SIGNER_NOT_INSTALLED_AS_TRUSTED_FOR_RUNTIME_CHECKS'
 "$APP/Contents/MacOS/Boggart" --validate-bundle
 # Проверяем реальный API регистрации, но не подтверждаем разрешение за пользователя.
 "$PROBE/Contents/MacOS/Boggart" register
@@ -50,10 +58,6 @@ sudo /bin/chmod 644 "$WORK/helper.plist"
 sudo /bin/launchctl bootstrap system "$WORK/helper.plist"
 sleep 2
 "$PROBE/Contents/MacOS/Boggart" xpc "$BOGGART_CI_CERT_DIGEST"
-# Валидная подпись, но чужой identifier: root-служба обязана отклонить клиента.
-cp "$PROBE/Contents/MacOS/Boggart" "$WORK/UnauthorizedProbe"
-/usr/bin/codesign --force --options runtime --timestamp=none --keychain "$BOGGART_CI_KEYCHAIN" \
-    --sign "$BOGGART_CI_IDENTITY" --identifier local.boggart.unauthorized "$WORK/UnauthorizedProbe"
 "$WORK/UnauthorizedProbe" reject "$BOGGART_CI_CERT_DIGEST"
 sudo /bin/launchctl bootout system/local.boggart.helper
 # Проверяем запуск реального SwiftUI-приложения, не нажимая «Не спать».
