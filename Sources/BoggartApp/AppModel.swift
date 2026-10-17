@@ -230,7 +230,18 @@ final class AppModel: ObservableObject {
             if helperState == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
             notifier.requestAfterExplicitSetup()
         } catch {
-            refreshSystemSettings(); errorMessage = "Помощник не настроен. \(error.localizedDescription)"
+            refreshSystemSettings()
+            // SMAppService может зарегистрировать запрос и вернуть error 1,
+            // пока пользователь ещё не разрешил daemon в системных настройках.
+            // Ожидание подтверждения не является неисправностью помощника.
+            if helperState == .requiresApproval {
+                defaults.set(true, forKey: "helperEverConfigured.v4")
+                errorMessage = nil
+                SMAppService.openSystemSettingsLoginItems()
+                notifier.requestAfterExplicitSetup()
+            } else {
+                errorMessage = "Помощник не настроен. \(error.localizedDescription)"
+            }
         }
         // Авторизация помощника никогда сама по себе не включает удержание.
     }

@@ -21,6 +21,13 @@ if mode == "register" {
         print(status == .enabled ? "REGISTERED_AND_ENABLED" : "REGISTERED_REQUIRES_USER_APPROVAL")
         exit(0)
     } catch {
+        let status = service.status
+        let failure = error as NSError
+        print("Registration result: \(failure.domain)/\(failure.code), status \(status.rawValue)")
+        if failure.domain == "SMAppServiceErrorDomain" && failure.code == 1 && status == .requiresApproval {
+            print("REGISTERED_REQUIRES_USER_APPROVAL")
+            exit(0)
+        }
         fputs("Registration failed: \(error)\n", stderr); exit(1)
     }
 }
