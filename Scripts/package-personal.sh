@@ -13,7 +13,12 @@ KEYCHAIN="$WORK/signing.keychain-db"
 PASSWORD="$(openssl rand -hex 24)"
 CERT="$WORK/certificate.pem"
 IDENTITY="Boggart Personal Build ${GITHUB_RUN_ID:-local}"
+ORIGINAL_KEYCHAINS=()
+while IFS= read -r line; do
+    ORIGINAL_KEYCHAINS+=("$(printf '%s' "$line" | sed 's/^[[:space:]]*"//; s/"[[:space:]]*$//')")
+done < <(/usr/bin/security list-keychains -d user)
 cleanup() {
+    /usr/bin/security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || true
     /usr/bin/security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
     /bin/rm -rf "$WORK"
 }
@@ -36,14 +41,17 @@ openssl req -new -newkey rsa:3072 -x509 -sha256 -nodes -days 3650 \
 openssl pkcs12 -export -legacy -inkey "$WORK/key.pem" -in "$CERT" \
     -out "$WORK/identity.p12" -passout "pass:$PASSWORD"
 /usr/bin/security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+/usr/bin/security list-keychains -d user -s "$KEYCHAIN" "${ORIGINAL_KEYCHAINS[@]}"
 /usr/bin/security set-keychain-settings -lut 3600 "$KEYCHAIN"
 /usr/bin/security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
-/usr/bin/security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$PASSWORD" -T /usr/bin/codesign >/dev/null
+/usr/bin/security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$PASSWORD" -T /usr/bin/codesign
 # Доверие существует лишь на временном runner; в пользовательской поставке нет
 # сертификатов для установки, профилей доверия или приватных ключей.
 sudo /usr/bin/security add-trusted-cert -d -r trustRoot -p codeSign -k "$KEYCHAIN" "$CERT"
 /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
 DIGEST="$(openssl x509 -in "$CERT" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+/usr/bin/security find-identity -p codesigning "$KEYCHAIN" | tee build/signing-check.log
+/usr/bin/security find-identity -v -p codesigning "$KEYCHAIN" | grep -qi "$DIGEST" || { echo 'Временная подпись недоступна для codesign.' >&2; exit 1; }
 export BOGGART_CI_IDENTITY="$IDENTITY" BOGGART_CI_KEYCHAIN="$KEYCHAIN" BOGGART_CI_CERT_DIGEST="$DIGEST"
 FLAGS=(-Xswiftc -DBOGGART_HARDWARE_TESTING -Xswiftc -DBOGGART_PERSONAL_BUILD)
 ARCHS=(--arch arm64 --arch x86_64)
@@ -63,7 +71,7 @@ cp Resources/local.boggart.helper.plist "$APP/Contents/Library/LaunchDaemons/"
 # Явное требование закрепляет точный сертификат и идентификатор каждого компонента.
 sign() {
     /usr/bin/codesign --force --options runtime --timestamp=none --keychain "$KEYCHAIN" \
-        --sign "$IDENTITY" --identifier "$2" \
+        --sign "$DIGEST" --identifier "$2" \
         --requirements "=designated => identifier \"$2\" and certificate leaf = H\"$DIGEST\"" "$1"
 }
 sign "$APP/Contents/MacOS/BoggartHelper" local.boggart.helper
