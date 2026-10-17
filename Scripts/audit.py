@@ -21,7 +21,7 @@ assert 'case .disableSleep: return ["-a", "disablesleep", "1"]' in adapter
 info = plistlib.loads((root / 'Resources/Info.plist').read_bytes())
 job = plistlib.loads((root / 'Resources/local.boggart.helper.plist').read_bytes())
 assert info['LSUIElement'] is True
-assert info['CFBundleShortVersionString'] == '0.4.0'
+assert info['CFBundleShortVersionString'] == '0.4.1'
 assert info['BoggartRecoverySchema'] == 3
 assert info['BoggartProtocolVersion'] == 4
 assert info['BoggartHardwareTesting'] is False

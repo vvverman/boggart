@@ -2,29 +2,60 @@ name: Сборка приложения
 on:
   push:
     branches: [main]
+    paths:
+      - 'Sources/**'
+      - 'Scripts/**'
+      - 'Resources/**'
+      - 'Package.swift'
+      - '.github/workflows/package.yml'
+      - 'Docs/Установка-личной-сборки.txt'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: boggart-personal-package
+  cancel-in-progress: false
 jobs:
   package:
     runs-on: macos-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Снимок исходников для воспроизводимой сборки
+      - name: Тесты и статические проверки
+        run: |
+          mkdir -p build
+          swift test 2>&1 | tee build/core-tests.log
+          python3 Scripts/audit.py
+      - name: Готовое приложение и проверка XPC
+        run: ./Scripts/package-personal.sh
+      - name: Исходники проверенной сборки
+        if: always()
         run: |
           mkdir -p build
           git archive --format=zip -o build/boggart-source.zip HEAD
       - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: boggart-source
-          path: build/boggart-source.zip
-          retention-days: 7
-      - name: Проверки macOS
-        run: ./Scripts/check.sh
-      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
-          name: boggart-package-logs
-          path: build/*.log
+          name: boggart-build-evidence
+          path: |
+            build/*.log
+            build/boggart-source.zip
+          retention-days: 14
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Boggart-0.4.1-macOS
+          path: dist/*
+          retention-days: 90
+      - name: Публикация предварительной личной сборки
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v0.4.1-personal.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Боггарт 0.4.1 — личная сборка" \
+            --notes-file Docs/Установка-личной-сборки.txt
