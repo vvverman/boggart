@@ -6,6 +6,10 @@ import Darwin
 @objc protocol ProbeProtocol {
     func perform(_ data: Data, withReply reply: @escaping (Data) -> Void)
 }
+DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+    fputs("Native probe exceeded 30 seconds; not counted as a pass\n", stderr)
+    exit(124)
+}
 let mode = CommandLine.arguments.dropFirst().first ?? ""
 let service = SMAppService.daemon(plistName: "local.boggart.helper.plist")
 if mode == "register" {

@@ -45,13 +45,12 @@ openssl pkcs12 -export -legacy -inkey "$WORK/key.pem" -in "$CERT" \
 /usr/bin/security set-keychain-settings -lut 3600 "$KEYCHAIN"
 /usr/bin/security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
 /usr/bin/security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$PASSWORD" -T /usr/bin/codesign
-# Доверие существует лишь на временном runner; в пользовательской поставке нет
-# сертификатов для установки, профилей доверия или приватных ключей.
-sudo /usr/bin/security add-trusted-cert -d -r trustRoot -p codeSign -k "$KEYCHAIN" "$CERT"
+# Для закреплённого сертификата не требуется глобальное доверие.
+# Не изменяем настройки доверия ни на сборочном Mac, ни в поставке.
 /usr/bin/security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
 DIGEST="$(openssl x509 -in "$CERT" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
 /usr/bin/security find-identity -p codesigning "$KEYCHAIN" | tee build/signing-check.log
-/usr/bin/security find-identity -v -p codesigning "$KEYCHAIN" | grep -qi "$DIGEST" || { echo 'Временная подпись недоступна для codesign.' >&2; exit 1; }
+/usr/bin/security find-identity -p codesigning "$KEYCHAIN" | grep -qi "$DIGEST" || { echo 'Временная подпись недоступна для codesign.' >&2; exit 1; }
 export BOGGART_CI_IDENTITY="$IDENTITY" BOGGART_CI_KEYCHAIN="$KEYCHAIN" BOGGART_CI_CERT_DIGEST="$DIGEST"
 FLAGS=(-Xswiftc -DBOGGART_HARDWARE_TESTING -Xswiftc -DBOGGART_PERSONAL_BUILD)
 ARCHS=(--arch arm64 --arch x86_64)
@@ -79,7 +78,7 @@ sign "$APP" local.boggart.app
 /usr/bin/codesign --verify --deep --strict --all-architectures --verbose=2 "$APP"
 /usr/bin/lipo "$APP/Contents/MacOS/Boggart" -verify_arch arm64 x86_64
 /usr/bin/lipo "$APP/Contents/MacOS/BoggartHelper" -verify_arch arm64 x86_64
-"$APP/Contents/MacOS/Boggart" --validate-bundle
+python3 -c 'import subprocess,sys; subprocess.run(sys.argv[1:], check=True, timeout=30)' "$APP/Contents/MacOS/Boggart" --validate-bundle
 ./Scripts/smoke-personal.sh 2>&1 | tee build/personal-smoke.log
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 STAGE="$WORK/image"

@@ -1,6 +1,9 @@
 #!/bin/bash
 # Настоящий XPC с root-помощником на одноразовом CI Mac, без команд удержания сна.
 set -euo pipefail
+# Команды этой проверки не содержат приватных ключей или паролей.
+PS4="+ smoke: "
+set -x
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 [[ "$(uname -s)" == Darwin && "${CI:-}" == true ]] || exit 1
@@ -33,10 +36,8 @@ cp "$PROBE/Contents/MacOS/Boggart" "$WORK/UnauthorizedProbe"
 /usr/bin/codesign --force --options runtime --timestamp=none --keychain "$BOGGART_CI_KEYCHAIN" \
     --sign "$BOGGART_CI_IDENTITY" --identifier local.boggart.unauthorized "$WORK/UnauthorizedProbe"
 # Не позволяем проверкам зависеть от сертификата, доверенного только на CI.
-/usr/bin/security find-certificate -c "$BOGGART_CI_IDENTITY" -p "$BOGGART_CI_KEYCHAIN" > "$WORK/public.pem"
-sudo /usr/bin/security remove-trusted-cert -d "$WORK/public.pem"
 echo 'SIGNER_NOT_INSTALLED_AS_TRUSTED_FOR_RUNTIME_CHECKS'
-"$APP/Contents/MacOS/Boggart" --validate-bundle
+python3 -c 'import subprocess,sys; subprocess.run(sys.argv[1:], check=True, timeout=30)' "$APP/Contents/MacOS/Boggart" --validate-bundle
 # Проверяем реальный API регистрации, но не подтверждаем разрешение за пользователя.
 "$PROBE/Contents/MacOS/Boggart" register
 "$PROBE/Contents/MacOS/Boggart" unregister
