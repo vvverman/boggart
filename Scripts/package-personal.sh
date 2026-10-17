@@ -77,8 +77,8 @@ sign() {
 sign "$APP/Contents/MacOS/BoggartHelper" local.boggart.helper
 sign "$APP" local.boggart.app
 /usr/bin/codesign --verify --deep --strict --all-architectures --verbose=2 "$APP"
-/usr/bin/lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/Boggart"
-/usr/bin/lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/BoggartHelper"
+/usr/bin/lipo "$APP/Contents/MacOS/Boggart" -verify_arch arm64 x86_64
+/usr/bin/lipo "$APP/Contents/MacOS/BoggartHelper" -verify_arch arm64 x86_64
 "$APP/Contents/MacOS/Boggart" --validate-bundle
 ./Scripts/smoke-personal.sh 2>&1 | tee build/personal-smoke.log
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
