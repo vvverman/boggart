@@ -14,11 +14,14 @@ permissions:
   contents: read
 concurrency:
   group: boggart-personal-package
-  cancel-in-progress: false
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
   package:
     runs-on: macos-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -28,10 +31,14 @@ jobs:
       - name: Тесты и статические проверки
         run: |
           mkdir -p build
-          swift test 2>&1 | tee build/core-tests.log
+          swift test > build/core-tests.log 2>&1 || { tail -100 build/core-tests.log; exit 1; }
+          tail -12 build/core-tests.log
           python3 Scripts/audit.py
       - name: Готовое приложение и проверка XPC
-        run: ./Scripts/package-personal.sh
+        timeout-minutes: 5
+        run: |
+          ./Scripts/package-personal.sh > build/package.log 2>&1 || { tail -120 build/package.log; exit 1; }
+          tail -80 build/package.log
       - name: Исходники проверенной сборки
         if: always()
         run: |
