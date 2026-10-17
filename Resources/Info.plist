@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>local.boggart.app</string>
+<key>CFBundleName</key><string>Boggart</string>
+<key>CFBundleDisplayName</key><string>Боггарт</string>
+<key>CFBundleExecutable</key><string>Boggart</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleVersion</key><string>4</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>LSUIElement</key><true/>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>CFBundleDevelopmentRegion</key><string>ru</string>
+<key>CFBundleLocalizations</key><array><string>ru</string></array>
+<key>BoggartRecoverySchema</key><integer>3</integer>
+<key>BoggartProtocolVersion</key><integer>4</integer>
+<key>BoggartHardwareTesting</key><false/>
+</dict></plist>

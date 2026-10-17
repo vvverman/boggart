@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "version": "0.4.0",
+  "approved": false,
+  "model": "",
+  "osBuild": "",
+  "sourceFingerprint": "",
+  "date": "",
+  "acceptedBy": "",
+  "evidence": "",
+  "checks": {
+    "native_build": false,
+    "signature_xpc": false,
+    "ui_accessibility": false,
+    "closed_lid_without_monitor": false,
+    "displays_and_lock": false,
+    "power_changes": false,
+    "crash_recovery": false,
+    "update_and_uninstall": false
+  }
+}
