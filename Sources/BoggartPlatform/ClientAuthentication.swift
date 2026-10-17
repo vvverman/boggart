@@ -10,8 +10,12 @@ public enum ClientAuthentication {
         guard SecCodeCopySelf(SecCSFlags(rawValue: 0), &ownCode) == errSecSuccess, let ownCode else {
             throw BoggartError.message("Не удалось проверить подпись Боггарта.")
         }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(ownCode, [], &staticCode) == errSecSuccess, let staticCode else {
+            throw BoggartError.message("Не удалось получить статическое представление подписи Боггарта.")
+        }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(ownCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
               let values = information as? [String: Any],
               let team = values[kSecCodeInfoTeamIdentifier as String] as? String,
               team.count == 10, team.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }),
