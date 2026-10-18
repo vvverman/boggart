@@ -8,7 +8,6 @@ on:
       - 'Resources/**'
       - 'Package.swift'
       - '.github/workflows/package.yml'
-      - '.github/source-transition.json'
       - 'Docs/Установка-личной-сборки.txt'
   workflow_dispatch:
 permissions:
@@ -29,14 +28,6 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Завершить проверенный переход исходников
-        if: hashFiles('.github/source-transition.json') != ''
-        run: |
-          python3 Scripts/apply-source-transition.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'feat: finish native 0.5 interface, initial setup and precise countdown'
       - name: Тесты и статические проверки
         run: |
           mkdir -p build
@@ -50,13 +41,6 @@ jobs:
           tail -80 build/package.log
       - name: Визуальная приёмка SwiftUI и привязки панели
         run: ./Scripts/capture-ui.sh > build/ui-capture.log 2>&1 || { cat build/ui-capture.log; exit 1; }
-      - name: Сохранить проверенные исходники
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
-            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD:main
-          fi
       - name: Исходники проверенной сборки
         if: always()
         run: |
@@ -81,8 +65,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.5.0-personal.${GITHUB_RUN_NUMBER}"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          TAG="v${VERSION}-personal.${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" dist/* \
-            --target "$(git rev-parse HEAD)" --prerelease \
-            --title "Боггарт 0.5.0 — личная сборка" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "Боггарт ${VERSION} — личная сборка" \
             --notes-file Docs/Установка-личной-сборки.txt
