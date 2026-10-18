@@ -8,6 +8,7 @@ on:
       - 'Resources/**'
       - 'Package.swift'
       - '.github/workflows/package.yml'
+      - '.github/source-transition.json'
       - 'Docs/Установка-личной-сборки.txt'
   workflow_dispatch:
 permissions:
@@ -21,13 +22,21 @@ defaults:
 jobs:
   package:
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Завершить проверенный переход исходников
+        if: hashFiles('.github/source-transition.json') != ''
+        run: |
+          python3 Scripts/apply-source-transition.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: finish native 0.5 interface, initial setup and precise countdown'
       - name: Тесты и статические проверки
         run: |
           mkdir -p build
@@ -35,10 +44,19 @@ jobs:
           tail -12 build/core-tests.log
           python3 Scripts/audit.py
       - name: Готовое приложение и проверка XPC
-        timeout-minutes: 5
+        timeout-minutes: 6
         run: |
           ./Scripts/package-personal.sh > build/package.log 2>&1 || { tail -120 build/package.log; exit 1; }
           tail -80 build/package.log
+      - name: Визуальная приёмка SwiftUI и привязки панели
+        run: ./Scripts/capture-ui.sh > build/ui-capture.log 2>&1 || { cat build/ui-capture.log; exit 1; }
+      - name: Сохранить проверенные исходники
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD:main
+          fi
       - name: Исходники проверенной сборки
         if: always()
         run: |
@@ -51,18 +69,20 @@ jobs:
           path: |
             build/*.log
             build/boggart-source.zip
+            build/visuals/*.png
+            build/visuals/installer.DS_Store
           retention-days: 14
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: Boggart-0.4.1-macOS
+          name: Boggart-0.5.0-macOS
           path: dist/*
           retention-days: 90
       - name: Публикация предварительной личной сборки
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.4.1-personal.${GITHUB_RUN_NUMBER}"
+          TAG="v0.5.0-personal.${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" dist/* \
-            --target "$GITHUB_SHA" --prerelease \
-            --title "Боггарт 0.4.1 — личная сборка" \
+            --target "$(git rev-parse HEAD)" --prerelease \
+            --title "Боггарт 0.5.0 — личная сборка" \
             --notes-file Docs/Установка-личной-сборки.txt

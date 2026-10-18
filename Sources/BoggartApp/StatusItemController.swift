@@ -7,51 +7,44 @@ import BoggartPlatform
 private final class PassthroughStatusView: NSHostingView<StatusLabelView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-/// Системное nonactivating-окно. orderFront при наведении не активирует приложение
-/// и не забирает ввод у редактора, терминала или другого текущего приложения.
-private final class ControlPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-}
 
-/// Только интеграция с macOS: события, окно, доступность NSStatusItem.
-/// Ни правила сессии, ни настройки, ни представления не реализованы в AppKit.
-final class StatusItemController: NSObject {
+/// AppKit отвечает только за системное размещение и события. Системный popover
+/// сам привязывается к реальной кнопке на нужном дисплее, включая скрытую строку меню.
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let model: AppModel
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let panel: ControlPanel
-    private var panelHost: NSHostingController<ControlPanelView>?
+    private let popover = NSPopover()
+    private var host: NSHostingController<ControlPanelView>?
     private var tracking: NSTrackingArea?
     private var interaction = PanelInteraction()
     private var delayed: DispatchWorkItem?
     private var subscription: AnyCancellable?
+    private var maintenanceSubscription: AnyCancellable?
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var settingsWindow: NSWindowController?
+    private var setupWindow: NSWindowController?
+    private var maintenanceWindow: NSWindowController?
+    private var observers: [NSObjectProtocol] = []
 
     init(model: AppModel) {
         self.model = model
-        panel = ControlPanel(contentRect: .zero,
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: true)
         super.init()
-        panel.title = "Боггарт"; panel.titleVisibility = .hidden; panel.titlebarAppearsTransparent = true
-        panel.isFloatingPanel = true; panel.becomesKeyOnlyIfNeeded = true
-        panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
-        panel.level = .popUpMenu; panel.hasShadow = true
-        panel.isOpaque = false; panel.backgroundColor = .clear
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.delegate = self
         let content = ControlPanelView(model: model,
             openSettings: { [weak self] in self?.showSettings() },
+            openSetup: { [weak self] in self?.showSetup() },
             dismiss: { [weak self] in self?.send(.dismiss) },
             quit: { NSApp.terminate(nil) },
             hover: { [weak self] in self?.send($0 ? .enterPanel : .leavePanel) },
             editing: { [weak self] in self?.send($0 ? .beginEditing : .endEditing) })
         let host = NSHostingController(rootView: content)
-        panel.contentViewController = host; panelHost = host
+        self.host = host; popover.contentViewController = host
         guard let button = item.button else { return }
         button.title = ""; button.image = nil
         button.target = self; button.action = #selector(clicked)
-        // mouseDown отменяет ожидающее hover-открытие; команда выполняется на mouseUp.
         button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp])
         let statusHost = PassthroughStatusView(rootView: StatusLabelView(model: model))
         statusHost.frame = button.bounds; statusHost.autoresizingMask = [.width, .height]
@@ -66,6 +59,21 @@ final class StatusItemController: NSObject {
         subscription = model.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refresh() }
         }
+        maintenanceSubscription = model.$maintenanceOffer.sink { [weak self] offer in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let offer { self.showMaintenance(offer) }
+                else { self.maintenanceWindow?.close(); self.maintenanceWindow = nil }
+            }
+        }
+        for name in [NSApplication.didChangeScreenParametersNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            let center = name == NSWorkspace.activeSpaceDidChangeNotification ? NSWorkspace.shared.notificationCenter : NotificationCenter.default
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.dismiss() })
+        }
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshClockVisibility() }
+            })
         refresh()
     }
     @objc private func clicked() {
@@ -74,10 +82,7 @@ final class StatusItemController: NSObject {
         }
         if NSApp.currentEvent?.type == .rightMouseUp || NSApp.currentEvent?.modifierFlags.contains(.control) == true {
             send(.openMouse)
-        } else {
-            send(.toggleClick)
-            model.toggle()
-        }
+        } else { send(.toggleClick); model.toggle() }
     }
     @objc func mouseEntered(with event: NSEvent) { send(.enterAnchor) }
     @objc func mouseExited(with event: NSEvent) { send(.leaveAnchor) }
@@ -100,30 +105,35 @@ final class StatusItemController: NSObject {
     private func apply(_ effect: PanelInteraction.Effect?) {
         switch effect {
         case .show:
-            positionPanel()
-            panel.orderFrontRegardless() // Не вызываем NSApp.activate на hover.
-            if interaction.pinned { panel.makeKey() }
-            if interaction.keyboard { panel.selectNextKeyView(nil) }
-            installMonitors()
+            guard let button = item.button, button.window != nil else { return }
+            updateSize()
+            if !popover.isShown {
+                popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            }
+            if interaction.pinned { host?.view.window?.makeKey() }
+            if interaction.keyboard { host?.view.window?.selectNextKeyView(nil) }
+            installMonitors(); refreshClockVisibility()
         case .close:
-            panel.orderOut(nil); removeMonitors()
+            if popover.isShown { popover.close() }
+            removeMonitors(); refreshClockVisibility()
         case nil: break
         }
     }
-    private func positionPanel() {
-        guard let button = item.button, let window = button.window, let host = panelHost else { return }
+    private func updateSize() {
+        guard let host else { return }
         host.view.layoutSubtreeIfNeeded()
         let size = host.view.fittingSize
-        panel.setContentSize(NSSize(width: 350, height: max(100, size.height)))
-        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
-        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? anchor
-        let x = min(max(anchor.midX - panel.frame.width / 2, visible.minX + 8), visible.maxX - panel.frame.width - 8)
-        let y = max(visible.minY + 8, anchor.minY - panel.frame.height - 4)
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        let newSize = NSSize(width: 320, height: max(100, size.height))
+        if popover.contentSize != newSize { popover.contentSize = newSize }
     }
+    func popoverDidClose(_ notification: Notification) {
+        _ = interaction.receive(.dismiss, at: MacClock.continuous)
+        delayed?.cancel(); delayed = nil; removeMonitors(); refreshClockVisibility()
+    }
+    func popoverShouldDetach(_ popover: NSPopover) -> Bool { false }
     private func pointerInManagedArea() -> Bool {
         let point = NSEvent.mouseLocation
-        if panel.isVisible && panel.frame.contains(point) { return true }
+        if popover.isShown, let window = host?.view.window, window.frame.contains(point) { return true }
         if let button = item.button, let window = button.window {
             return window.convertToScreen(button.convert(button.bounds, to: nil)).contains(point)
         }
@@ -133,22 +143,19 @@ final class StatusItemController: NSObject {
         guard localMonitor == nil else { return }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp, .rightMouseUp, .keyDown]) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, event.window === self.panel {
+            if event.type == .keyDown, event.window === self.host?.view.window {
                 if event.keyCode == 53 { self.send(.dismiss); return nil }
             } else if event.type == .leftMouseUp || event.type == .rightMouseUp { self.send(.endPointerAction) }
             else if event.type == .leftMouseDown || event.type == .rightMouseDown {
                 if !self.pointerInManagedArea() { self.send(.dismiss) }
-                else if event.window === self.panel {
-                    self.send(.beginPointerAction)
-                    // Явное взаимодействие может дать панели клавиатурный фокус.
-                    self.panel.makeKey()
+                else if event.window === self.host?.view.window {
+                    self.send(.beginPointerAction); self.host?.view.window?.makeKey()
                 }
             }
             return event
         }
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, !self.pointerInManagedArea() else { return }
-            self.send(.dismiss)
+            guard let self, !self.pointerInManagedArea() else { return }; self.send(.dismiss)
         }
     }
     private func removeMonitors() {
@@ -156,33 +163,70 @@ final class StatusItemController: NSObject {
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         localMonitor = nil; globalMonitor = nil
     }
+    private func refreshClockVisibility() {
+        model.preciseClockVisible = popover.isShown || settingsWindow?.window?.isVisible == true
+    }
+#if BOGGART_UI_TESTING
+    func capturePopover(to url: URL) throws {
+        guard let button = item.button, let window = button.window,
+              let content = host?.view.window?.contentView, let panelWindow = host?.view.window else {
+            throw NSError(domain: "PopoverTest", code: 1)
+        }
+        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let gap = anchor.minY - panelWindow.frame.maxY
+        guard gap <= 12 && gap >= -32 else { throw NSError(domain: "PopoverGap", code: Int(gap)) }
+        print("POPOVER_ANCHOR_GAP_POINTS=\(gap)")
+        try UISnapshots.capture(content, to: url)
+    }
+#endif
     private func refresh() {
         item.button?.setAccessibilityValue(model.accessibilityValue)
-        item.button?.setAccessibilityHelp("Нажатие переключает удержание. Панель доступна через правый клик или действие VoiceOver «Открыть панель управления».")
+        item.button?.setAccessibilityHelp("Нажатие переключает удержание; наведение или правый клик открывают панель.")
         let length: CGFloat
-        if model.attention || (model.active && !model.showRemaining) { length = 28 }
+        if model.attention || (model.active && !model.showRemaining) { length = 32 }
         else if model.active {
             let hours = Int(min((model.remaining ?? 0) / 3600, Double(Int.max / 2)))
-            length = max(82, CGFloat(String(hours).count * 8 + 60))
-        } else { length = 66 }
+            length = max(78, CGFloat(String(hours).count * 8 + 54))
+        } else { length = 72 }
         if item.length != length { item.length = length }
-        if panel.isVisible { positionPanel() }
+        if popover.isShown { updateSize() }
     }
     func showSettings() {
         dismiss(); model.refreshSystemSettings()
         if settingsWindow == nil {
-            let controller = NSHostingController(rootView: SettingsView(model: model))
-            let window = NSWindow(contentViewController: controller)
-            window.title = "Настройки Боггарта"; window.styleMask = [.titled, .closable]
-            window.isReleasedWhenClosed = false; window.center()
-            settingsWindow = NSWindowController(window: window)
+            settingsWindow = makeWindow(SettingsView(model: model), title: "Настройки Боггарта")
         }
+        activate(settingsWindow); refreshClockVisibility()
+    }
+    func showSetup() {
+        dismiss()
+        if setupWindow == nil {
+            setupWindow = makeWindow(SetupView(model: model, done: { [weak self] in
+                guard let self else { return }
+                self.model.completeIntroduction(); self.setupWindow?.close()
+            }), title: "Боггарт")
+        }
+        activate(setupWindow)
+    }
+    private func showMaintenance(_ offer: MaintenanceOffer) {
+        dismiss()
+        maintenanceWindow = makeWindow(MaintenanceView(model: model, offer: offer), title: offer.title)
+        activate(maintenanceWindow)
+    }
+    private func makeWindow<V: View>(_ view: V, title: String) -> NSWindowController {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.title = title; window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false; window.center()
+        return NSWindowController(window: window)
+    }
+    private func activate(_ controller: NSWindowController?) {
         NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.showWindow(nil); settingsWindow?.window?.makeKeyAndOrderFront(nil)
+        controller?.showWindow(nil); controller?.window?.makeKeyAndOrderFront(nil)
     }
     deinit {
         delayed?.cancel(); removeMonitors()
+        for observer in observers { NotificationCenter.default.removeObserver(observer); NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let tracking { item.button?.removeTrackingArea(tracking) }
-        panel.orderOut(nil); NSStatusBar.system.removeStatusItem(item)
+        popover.close(); NSStatusBar.system.removeStatusItem(item)
     }
 }
