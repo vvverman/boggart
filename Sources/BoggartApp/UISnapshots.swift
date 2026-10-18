@@ -37,10 +37,8 @@ import SwiftUI
                     autosaveName: "Boggart-UI-" + UUID().uuidString)
                 defer { controller.retireForCI() }
                 RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                try captureAnchoredPopover(controller, to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
                 try controller.verifyNativeStatusForCI(to: directory, suffix: active ? "active" : "inactive")
-                controller.openKeyboard()
-                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
-                try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
                 controller.dismiss()
                 try controller.captureControlWindow(to: directory.appendingPathComponent(active ? "independent-active.png" : "independent-inactive.png"))
                 try controller.verifyHiddenItemRecovery(to: directory.appendingPathComponent(active ? "hidden-item-active.png" : "hidden-item-inactive.png"))
@@ -53,6 +51,22 @@ import SwiftUI
             }
         }
         print("SWIFTUI_VIEWS_RENDERED; NO_SLEEP_COMMANDS_SENT")
+    }
+    /// Назначение места statusItem асинхронно. Не подменяем геометрию и не
+    /// принимаем запасное окно за popover: ждём именно привязанную панель.
+    private static func captureAnchoredPopover(_ controller: StatusItemController, to url: URL) throws {
+        let deadline = Date().addingTimeInterval(3)
+        while true {
+            controller.dismiss()
+            controller.openKeyboard()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            do {
+                try controller.capturePopover(to: url)
+                return
+            } catch let error as NSError {
+                guard error.domain == "PopoverTest", error.code == 1, Date() < deadline else { throw error }
+            }
+        }
     }
     private static func render<V: View>(_ view: V, to url: URL) throws {
         let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
