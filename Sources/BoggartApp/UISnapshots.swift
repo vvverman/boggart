@@ -29,23 +29,28 @@ import SwiftUI
             try render(SetupView(model: setup, done: {}).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("setup-\(name).png"))
         }
         NSApp.appearance = NSAppearance(named: .aqua)
-        // У разных тестовых statusItem разные autosaveName. В приложении всегда
-        // один контроллер и постоянное имя; здесь две изолированные модели.
-        // Имитация исчезновения значка выполняется после проверки обоих popover.
-        let cases = [false, true].map { active in
-            (active, StatusItemController(model: .preview(active: active),
-                autosaveName: "Boggart-UI-\(active)-\(UUID().uuidString)"))
+        // Один контроллер за раз: как в приложении. У каждого теста своё имя
+        // положения; после проверки отменены таймеры и ожидающие перерисовки.
+        for active in [false, true] {
+            try autoreleasepool {
+                let controller = StatusItemController(model: .preview(active: active),
+                    autosaveName: "Boggart-UI-" + UUID().uuidString)
+                defer { controller.retireForCI() }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                try controller.verifyNativeStatusForCI(to: directory, suffix: active ? "active" : "inactive")
+                controller.openKeyboard()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
+                controller.dismiss()
+                try controller.captureControlWindow(to: directory.appendingPathComponent(active ? "independent-active.png" : "independent-inactive.png"))
+                try controller.verifyHiddenItemRecovery(to: directory.appendingPathComponent(active ? "hidden-item-active.png" : "hidden-item-inactive.png"))
+            }
         }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        for (active, controller) in cases {
-            controller.openKeyboard()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-            try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
-            controller.dismiss()
-        }
-        for (active, controller) in cases {
-            try controller.captureControlWindow(to: directory.appendingPathComponent(active ? "independent-active.png" : "independent-inactive.png"))
-            try controller.verifyHiddenItemRecovery(to: directory.appendingPathComponent(active ? "hidden-item-active.png" : "hidden-item-inactive.png"))
+        for login in [false, true] {
+            for active in [false, true] {
+                let delegate = AppDelegate(previewModel: .preview(active: active), atLogin: login)
+                try delegate.verifyLaunchForCI(to: directory, active: active)
+            }
         }
         print("SWIFTUI_VIEWS_RENDERED; NO_SLEEP_COMMANDS_SENT")
     }

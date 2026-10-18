@@ -59,7 +59,7 @@ jobs:
           retention-days: 14
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: Boggart-0.5.2-macOS
+          name: Boggart-0.5.3-macOS
           path: dist/*
           retention-days: 90
       - name: Публикация предварительной личной сборки

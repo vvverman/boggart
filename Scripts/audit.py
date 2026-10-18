@@ -21,7 +21,7 @@ assert 'case .disableSleep: return ["-a", "disablesleep", "1"]' in adapter
 info = plistlib.loads((root / 'Resources/Info.plist').read_bytes())
 job = plistlib.loads((root / 'Resources/local.boggart.helper.plist').read_bytes())
 assert info['LSUIElement'] is True
-assert info['CFBundleShortVersionString'] == '0.5.2'
+assert info['CFBundleShortVersionString'] == '0.5.3'
 assert info['BoggartRecoverySchema'] == 3
 assert info['BoggartProtocolVersion'] == 4
 assert info['BoggartHardwareTesting'] is False
@@ -51,3 +51,9 @@ assert "Завершить Боггарт" not in views
 assert "IdleLockPolicy.shouldHold" in text
 assert "IOPMAssertionDeclareUserActivity" in text
 assert "CGEvent(" not in text
+
+status = (root / "Sources/BoggartApp/StatusItemController.swift").read_text()
+assert "PassthroughStatusView" not in status and "AdaptiveStatusLabelView" not in status
+assert "NativeStatusArtwork.spider" in status
+assert "LaunchPresentation.initial" in (root / "Sources/BoggartApp/AppDelegate.swift").read_text()
+assert "applicationDockMenu" in (root / "Sources/BoggartApp/AppDelegate.swift").read_text()

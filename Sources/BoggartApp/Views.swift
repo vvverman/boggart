@@ -130,10 +130,12 @@ struct ControlPanelView: View {
                 Spacer()
                 Menu {
                     Button("Удалить…", action: model.offerRemoval)
-                    Button("Выйти", action: quit).keyboardShortcut("q").disabled(model.busy)
                 } label: { Image(systemName: "ellipsis").frame(width: 18) }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                     .accessibilityLabel("Другие действия")
+                Button("Выйти", action: quit).buttonStyle(.borderless)
+                    .keyboardShortcut("q").disabled(model.busy)
+                    .help("Завершить удержание и закрыть Боггарт")
             }.controlSize(.small)
         }
         .padding(16).frame(width: Self.width).fixedSize(horizontal: false, vertical: true)

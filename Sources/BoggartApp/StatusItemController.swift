@@ -4,34 +4,6 @@ import Combine
 import BoggartCore
 import BoggartPlatform
 
-private struct AdaptiveStatusLabelView: View {
-    @ObservedObject var model: AppModel
-    var compact: Bool
-    var body: some View {
-        Group {
-            if compact {
-                Group {
-                    if model.busy || model.awaitingExpiryConfirmation || model.checkingStatus {
-                        ProgressView().controlSize(.mini)
-                    } else if model.attention {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                    } else if model.active {
-                        NoSleepSymbol().foregroundStyle(Color.accentColor)
-                    } else {
-                        SkatingSpider(monochrome: true)
-                    }
-                }.frame(width: 18, height: 18)
-            } else {
-                StatusLabelView(model: model)
-            }
-        }.accessibilityHidden(true)
-    }
-}
-
-private final class PassthroughStatusView: NSHostingView<AdaptiveStatusLabelView> {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 /// AppKit отвечает только за системное размещение и события. Системный popover
 /// привязывается только к доступной кнопке. При вырезе или переполнении
 /// управление открывается в обычном временном окне с тем же SwiftUI-содержимым.
@@ -39,8 +11,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let model: AppModel
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
-    private var statusHost: PassthroughStatusView?
     private var compact = true
+    private var access = AccessPresentation()
+    private var refreshQueued = false
+    private var retired = false
+    private var accessTimer: Timer?
+    private var closedWindows = Set<ObjectIdentifier>()
     private var controlWindow: NSWindowController?
     private var host: NSHostingController<ControlPanelView>?
     private var tracking: NSTrackingArea?
@@ -55,11 +31,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var maintenanceWindow: NSWindowController?
     private var observers: [NSObjectProtocol] = []
 
-    init(model: AppModel, autosaveName: String = "BoggartStatusItem") {
+    init(model: AppModel, autosaveName: String = "BoggartNativeStatusItem") {
         self.model = model
         super.init()
         IdleLockController.shared.attach(model)
         item.autosaveName = autosaveName
+        item.behavior = []
+        item.isVisible = true
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self
@@ -73,13 +51,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let host = NSHostingController(rootView: content)
         self.host = host; popover.contentViewController = host
         guard let button = item.button else { return }
-        button.title = ""; button.image = nil
+        button.title = ""
+        button.image = NativeStatusArtwork.spider
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         button.target = self; button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp])
-        let statusHost = PassthroughStatusView(rootView: AdaptiveStatusLabelView(model: model, compact: true))
-        self.statusHost = statusHost
-        statusHost.frame = button.bounds; statusHost.autoresizingMask = [.width, .height]
-        statusHost.setAccessibilityElement(false); button.addSubview(statusHost)
         let tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         button.addTrackingArea(tracking); self.tracking = tracking
         button.setAccessibilityLabel("Боггарт")
@@ -88,7 +66,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             NSAccessibilityCustomAction(name: "Открыть настройки", handler: { [weak self] in self?.showSettings(); return true })
         ])
         subscription = model.objectWillChange.sink { [weak self] _ in
-            DispatchQueue.main.async { self?.refresh() }
+            self?.queueRefresh()
         }
         maintenanceSubscription = model.$maintenanceOffer.sink { [weak self] offer in
             DispatchQueue.main.async {
@@ -99,18 +77,24 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         for name in [NSApplication.didChangeScreenParametersNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             let center = name == NSWorkspace.activeSpaceDidChangeNotification ? NSWorkspace.shared.notificationCenter : NotificationCenter.default
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.dismiss() })
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.send(.dismiss); self?.queueRefresh()
+            })
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
-            object: nil, queue: .main) { [weak self] _ in
-                DispatchQueue.main.async { self?.refreshClockVisibility() }
+            object: nil, queue: .main) { [weak self] note in
+                if let window = note.object as? NSWindow { self?.closedWindows.insert(ObjectIdentifier(window)) }
+                DispatchQueue.main.async { self?.refreshClockVisibility(); self?.updateDockPresence() }
             })
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didChangeScreenNotification] {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: button.window,
-                queue: .main) { [weak self] _ in
-                    DispatchQueue.main.async { self?.refresh() }
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil,
+                queue: .main) { [weak self] note in
+                    guard let self, let window = note.object as? NSWindow, window === self.item.button?.window else { return }
+                    self.queueRefresh()
                 })
         }
+        accessTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.queueRefresh() }
+        if let accessTimer { RunLoop.main.add(accessTimer, forMode: .common) }
         refresh()
         // AppKit назначает окончательное место не синхронно с созданием statusItem.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refresh() }
@@ -251,28 +235,59 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 #endif
         return available
     }
-    private func refresh() {
-        item.button?.setAccessibilityValue(model.accessibilityValue)
-        item.button?.setAccessibilityHelp("Нажатие переключает удержание; наведение или правый клик открывают панель. Управление также доступно при открытии Боггарта из Finder или Spotlight.")
-        item.button?.toolTip = "Боггарт: \(model.accessibilityValue)"
-        let textWidth = (model.menuText as NSString).size(withAttributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        ]).width
-        let expandedWidth = ceil(22 + 10 + (model.menuText.isEmpty ? 0 : 5 + textWidth))
-        let nextCompact = model.menuText.isEmpty || MenuBarLayout.needsCompact(
-            frame: anchorFrame, area: menuArea, expandedWidth: expandedWidth, wasCompact: compact)
-        if compact != nextCompact {
-            compact = nextCompact
-            statusHost?.rootView = AdaptiveStatusLabelView(model: model, compact: compact)
+    private func queueRefresh() {
+        guard !refreshQueued else { return }
+        refreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshQueued = false
+            self.refresh()
         }
-        let length = compact ? NSStatusItem.squareLength : expandedWidth
+    }
+    private func refresh() {
+        guard !retired else { return }
+        guard let button = item.button else { return }
+        button.setAccessibilityValue(model.accessibilityValue)
+        button.setAccessibilityHelp("Нажатие переключает удержание; наведение или правый клик открывают панель. Открытие Боггарта из Finder или Dock показывает окно управления.")
+        button.toolTip = "Боггарт: \(model.accessibilityValue)"
+        // Не сбрасываем image в nil и не зависим от размеров SwiftUI-подвида.
+        let waiting = model.busy || model.awaitingExpiryConfirmation || model.checkingStatus
+        let image = model.attention ? NativeStatusArtwork.error :
+            (waiting ? NativeStatusArtwork.busy : (model.active ? NativeStatusArtwork.noSleep : NativeStatusArtwork.spider))
+        if button.image !== image { button.image = image }
+        button.contentTintColor = model.attention ? .systemRed : (model.active && !waiting ? .controlAccentColor : nil)
+        let text = model.menuText
+        let font = button.font ?? NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        let expandedWidth = ceil(18 + 6 + 16 + (text as NSString).size(withAttributes: [.font: font]).width)
+        let nextCompact = text.isEmpty || MenuBarLayout.needsCompact(
+            frame: anchorFrame, area: menuArea, expandedWidth: expandedWidth, wasCompact: compact)
+        compact = nextCompact
+        let nextTitle = compact ? "" : text
+        if button.title != nextTitle { button.title = nextTitle }
+        button.imagePosition = compact ? .imageOnly : .imageLeading
+        let length: CGFloat = compact ? 28 : expandedWidth
         if item.length != length { item.length = length }
+        // Пропавший значок даёт запасной вход в Dock, но не всплывающее окно
+        // поверх чужой работы. После первого пропадания Dock больше не мерцает.
+        access.observeMenuItem(available: anchorAvailable, at: MacClock.continuous)
+        updateDockPresence()
         if popover.isShown { updateSize() }
         if let window = controlWindow?.window, window.isVisible, let view = window.contentViewController?.view {
             view.layoutSubtreeIfNeeded()
             let size = NSSize(width: ControlPanelView.width, height: max(100, view.fittingSize.height))
             if window.contentLayoutRect.size != size { window.setContentSize(size) }
         }
+    }
+    private var hasUserWindow: Bool {
+        [controlWindow, settingsWindow, setupWindow, maintenanceWindow].contains { controller in
+            guard let window = controller?.window else { return false }
+            return !closedWindows.contains(ObjectIdentifier(window)) && (window.isVisible || window.isMiniaturized)
+        }
+    }
+    private func updateDockPresence() {
+        guard !retired else { return }
+        let policy: NSApplication.ActivationPolicy = access.needsDock(hasWindow: hasUserWindow) ? .regular : .accessory
+        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
     }
 
     /// Явное открытие через Finder/Spotlight не зависит от места в строке меню.
@@ -297,6 +312,47 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         activate(controlWindow); refreshClockVisibility()
     }
 #if BOGGART_UI_TESTING
+    func retireForCI() {
+        retired = true
+        accessTimer?.invalidate(); delayed?.cancel()
+        subscription?.cancel(); maintenanceSubscription?.cancel()
+        observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        observers.removeAll()
+        dismiss(); settingsWindow?.close(); setupWindow?.close(); maintenanceWindow?.close()
+        NSStatusBar.system.removeStatusItem(item)
+    }
+    var hasVisibleControlWindowForCI: Bool { controlWindow?.window?.isVisible == true }
+    func verifyAlreadyVisibleControlWindowForCI(to url: URL) throws {
+        // Проверка не открывает окно сама: проверяем именно маршрут AppDelegate.
+        guard let window = controlWindow?.window, window.isVisible,
+              let content = window.contentView, NSApp.activationPolicy() == .regular else {
+            throw NSError(domain: "VisibleLaunchWindow", code: 1)
+        }
+        try UISnapshots.capture(content, to: url)
+    }
+    func verifyNativeStatusForCI(to directory: URL, suffix: String) throws {
+        refresh()
+        guard let button = item.button, let image = button.image, image.isTemplate,
+              button.subviews.allSatisfy({ !String(describing: type(of: $0)).contains("Hosting") }),
+              image.representations.count >= 2 else {
+            throw NSError(domain: "NativeStatusArtwork", code: 1)
+        }
+        guard let rep = image.representations.first as? NSBitmapImageRep else { throw NSError(domain: "NativeStatusInk", code: 1) }
+        var inkPixels = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                if (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 { inkPixels += 1 }
+            }
+        }
+        guard inkPixels > 15, inkPixels < rep.pixelsWide * rep.pixelsHigh else { throw NSError(domain: "NativeStatusInk", code: 2) }
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            button.appearance = NSAppearance(named: appearance)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            try UISnapshots.capture(button, to: directory.appendingPathComponent("native-status-\(suffix)-\(name).png"))
+        }
+        button.appearance = nil
+        print("NATIVE_STATUS_BUTTON_TEMPLATE_OK; NO_HOSTING_SUBVIEWS; IMAGE_REPS=\(image.representations.count)")
+    }
     func captureControlWindow(to url: URL) throws {
         showControlWindow()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -312,6 +368,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         // Только приёмочная сборка. Временно убираем свой statusItem публичным API.
         item.isVisible = false
         defer { item.isVisible = true }
+        let now = MacClock.continuous
+        access.observeMenuItem(available: false, at: now)
+        access.observeMenuItem(available: false, at: now + 1.1)
+        updateDockPresence()
+        guard NSApp.activationPolicy() == .regular else { throw NSError(domain: "HiddenDock", code: 1) }
         openKeyboard()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         guard controlWindow?.window?.isVisible == true, !popover.isShown,
@@ -320,7 +381,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         try UISnapshots.capture(view, to: url)
         print("HIDDEN_STATUS_ITEM_RECOVERY_OK; NO_SESSION_COMMANDS")
-        dismiss()
+        dismiss(); updateDockPresence()
+        guard NSApp.activationPolicy() == .regular else { throw NSError(domain: "HiddenDockAfterClose", code: 1) }
+        print("HIDDEN_ITEM_DOCK_ACCESS_REMAINS_AFTER_WINDOW_CLOSE")
     }
 #endif
     func showSettings() {
@@ -335,7 +398,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         if setupWindow == nil {
             setupWindow = makeWindow(SetupView(model: model, done: { [weak self] in
                 guard let self else { return }
-                self.model.completeIntroduction(); self.setupWindow?.close()
+                self.model.completeIntroduction()
+                guard self.model.introductionCompleted else { return }
+                self.setupWindow?.close(); self.showControlWindow()
             }), title: "Боггарт")
         }
         activate(setupWindow)
@@ -347,16 +412,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
     private func makeWindow<V: View>(_ view: V, title: String) -> NSWindowController {
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = title; window.styleMask = [.titled, .closable]
+        window.title = title; window.styleMask = [.titled, .closable, .miniaturizable]
+        window.identifier = NSUserInterfaceItemIdentifier("Boggart-" + title)
         window.isReleasedWhenClosed = false; window.center()
         return NSWindowController(window: window)
     }
     private func activate(_ controller: NSWindowController?) {
+        guard let window = controller?.window else { return }
+        closedWindows.remove(ObjectIdentifier(window))
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         controller?.showWindow(nil); controller?.window?.makeKeyAndOrderFront(nil)
     }
     deinit {
-        delayed?.cancel(); removeMonitors()
+        delayed?.cancel(); accessTimer?.invalidate(); removeMonitors()
         for observer in observers { NotificationCenter.default.removeObserver(observer); NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let tracking { item.button?.removeTrackingArea(tracking) }
         controlWindow?.close(); popover.close(); NSStatusBar.system.removeStatusItem(item)
