@@ -71,6 +71,28 @@ import SwiftUI
             guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw NSError(domain: "UICapture", code: 1) }
             view.cacheDisplay(in: view.bounds, to: bitmap)
             guard let data = bitmap.representation(using: .png, properties: [:]) else { throw NSError(domain: "UICapture", code: 2) }
+            if url.lastPathComponent.hasPrefix("native-status-") {
+                let dark = url.lastPathComponent.contains("-dark")
+                let imageEnd = min(bitmap.pixelsWide, Int(28 * CGFloat(bitmap.pixelsWide) / view.bounds.width))
+                for (region, range) in [("image", 0..<imageEnd), ("text", imageEnd..<bitmap.pixelsWide)] {
+                    if range.isEmpty { continue }
+                    var lightness = 0.0, count = 0
+                    for y in 0..<bitmap.pixelsHigh {
+                        for x in range {
+                            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                                  color.alphaComponent > 0.7 else { continue }
+                            lightness += (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                            count += 1
+                        }
+                    }
+                    let average = count > 0 ? lightness / Double(count) : -1
+                    guard count > 5, dark ? average > 0.55 : average >= 0 && average < 0.55 else {
+                        throw NSError(domain: "NativeStatusContrast", code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) \(region): ink=\(count), brightness=\(average)"])
+                    }
+                    print("NATIVE_STATUS_CONTRAST_OK: \(url.lastPathComponent) \(region), brightness=\(average)")
+                }
+            }
             try data.write(to: url)
         }
     }

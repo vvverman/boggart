@@ -255,7 +255,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let image = model.attention ? NativeStatusArtwork.error :
             (waiting ? NativeStatusArtwork.busy : (model.active ? NativeStatusArtwork.noSleep : NativeStatusArtwork.spider))
         if button.image !== image { button.image = image }
-        button.contentTintColor = model.attention ? .systemRed : (model.active && !waiting ? .controlAccentColor : nil)
+        // Принудительный tint у NSStatusBarButton ломает контраст в тёмной строке.
+        // AppKit сам подбирает цвет шаблона; активность различается формой месяца.
+        button.contentTintColor = nil
         let text = model.menuText
         let font = button.font ?? NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         let expandedWidth = ceil(18 + 6 + 16 + (text as NSString).size(withAttributes: [.font: font]).width)

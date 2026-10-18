@@ -29,6 +29,13 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Снять публикацию сборки с найденной ошибкой контраста
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.5.3-personal.22 >/dev/null 2>&1; then
+            gh release edit v0.5.3-personal.22 --draft --title "Не использовать: 0.5.3 (10), исправляется контраст значка"
+          fi
       - name: Тесты и статические проверки
         run: |
           mkdir -p build
