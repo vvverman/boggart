@@ -55,7 +55,9 @@ final class IdleLockController: ObservableObject {
     }
     func setRequested(_ value: Bool) {
         guard model?.busy != true else { return }
-        requested = value; error = nil
+        error = nil
+        guard value else { cancel(); return }
+        requested = true
         #if !BOGGART_UI_TESTING
         if value {
             timer?.invalidate()
@@ -93,33 +95,50 @@ final class IdleLockController: ObservableObject {
             release(); return
         }
         guard displayID == nil || MacClock.continuous - lastRenewal >= 10 else { return }
-        do {
-            let timeout = IdleLockPolicy.timeout(remaining: remaining)
-            if displayID == nil {
-                let properties: [String: Any] = [
-                    kIOPMAssertionTypeKey: kIOPMAssertionTypePreventUserIdleDisplaySleep,
-                    kIOPMAssertionNameKey: "Боггарт: без автоблокировки",
-                    kIOPMAssertionLevelKey: kIOPMAssertionLevelOn,
-                    kIOPMAssertionTimeoutKey: timeout,
-                    kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionTurnOff
-                ]
-                var id: IOPMAssertionID = 0
-                try check(IOPMAssertionCreateWithProperties(properties as CFDictionary, &id))
-                displayID = id
-            } else if let id = displayID {
-                try check(IOPMAssertionSetProperty(id, kIOPMAssertionTimeoutKey as CFString, NSNumber(value: timeout)))
-                try check(IOPMAssertionSetProperty(id, kIOPMAssertionLevelKey as CFString, NSNumber(value: kIOPMAssertionLevelOn)))
-            }
-            var id = activityID ?? 0
-            try check(IOPMAssertionDeclareUserActivity("Боггарт: без автоблокировки" as CFString, kIOPMUserActiveLocal, &id))
-            activityID = id
-            try check(IOPMAssertionSetProperty(id, kIOPMAssertionTimeoutKey as CFString, NSNumber(value: timeout)))
-            lastRenewal = MacClock.continuous
-        } catch {
+        do { try renew(timeout: IdleLockPolicy.timeout(remaining: remaining)) }
+        catch {
             self.error = "Не удалось удержать экран: \(error.localizedDescription)"
             cancel()
         }
     }
+    private func renew(timeout: TimeInterval) throws {
+        if displayID == nil {
+            let properties: [String: Any] = [
+                kIOPMAssertionTypeKey: kIOPMAssertionTypePreventUserIdleDisplaySleep,
+                kIOPMAssertionNameKey: "Боггарт: без автоблокировки",
+                kIOPMAssertionLevelKey: kIOPMAssertionLevelOn,
+                kIOPMAssertionTimeoutKey: timeout,
+                kIOPMAssertionTimeoutActionKey: kIOPMAssertionTimeoutActionTurnOff
+            ]
+            var id: IOPMAssertionID = 0
+            try check(IOPMAssertionCreateWithProperties(properties as CFDictionary, &id))
+            displayID = id
+        } else if let id = displayID {
+            try check(IOPMAssertionSetProperty(id, kIOPMAssertionTimeoutKey as CFString, NSNumber(value: timeout)))
+            try check(IOPMAssertionSetProperty(id, kIOPMAssertionLevelKey as CFString, NSNumber(value: kIOPMAssertionLevelOn)))
+        }
+        var id = activityID ?? 0
+        try check(IOPMAssertionDeclareUserActivity("Боггарт: без автоблокировки" as CFString, kIOPMUserActiveLocal, &id))
+        activityID = id
+        try check(IOPMAssertionSetProperty(id, kIOPMAssertionTimeoutKey as CFString, NSNumber(value: timeout)))
+        lastRenewal = MacClock.continuous
+    }
+#if BOGGART_UI_TESTING
+    /// Проверяет настоящие операции того же адаптера на одноразовом CI Mac.
+    /// Не создаёт сессию Боггарта и не меняет параметры pmset/пароля.
+    func verifyNativeAssertionsForCI() throws {
+        guard ProcessInfo.processInfo.environment["CI"] == "true" else { return }
+        defer { release() }
+        try renew(timeout: 1)
+        guard displayID != nil, activityID != nil else { throw BoggartError.message("Нет токенов экранного удержания.") }
+        try renew(timeout: 1)
+        release()
+        guard displayID == nil, activityID == nil, error == nil else {
+            throw BoggartError.message("Не подтверждено снятие экранных удержаний.")
+        }
+        print("NATIVE_IDLE_ASSERTIONS_CREATE_RENEW_RELEASE_OK")
+    }
+#endif
     private func check(_ result: IOReturn) throws {
         guard result == kIOReturnSuccess else { throw BoggartError.message("IOKit: \(result).") }
     }

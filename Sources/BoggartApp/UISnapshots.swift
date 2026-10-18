@@ -11,6 +11,7 @@ import SwiftUI
     private static func renderAll(directory: URL) throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
+        try IdleLockController.shared.verifyNativeAssertionsForCI()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for (name, scheme, appearance) in [("light", ColorScheme.light, NSAppearance.Name.aqua), ("dark", .dark, .darkAqua)] {
             NSApp.appearance = NSAppearance(named: appearance)

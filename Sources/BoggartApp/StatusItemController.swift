@@ -109,7 +109,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         case .show:
             guard let button = item.button, button.window != nil else { return }
             updateSize()
-            popover.positioningRect = button.bounds
             if !popover.isShown {
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             }
