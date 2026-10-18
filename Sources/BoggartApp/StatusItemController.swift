@@ -245,7 +245,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                       width: screen.frame.width, height: NSStatusBar.system.thickness)
     }
     private var anchorAvailable: Bool {
-        item.isVisible && item.button?.window?.isVisible == true && MenuBarLayout.contains(anchorFrame, in: menuArea)
+        let available = item.isVisible && MenuBarLayout.contains(anchorFrame, in: menuArea)
+#if BOGGART_UI_TESTING
+        print("STATUS_ANCHOR item=\(item.isVisible) ownerVisible=\(item.button?.window?.isVisible == true) frame=\(String(describing: anchorFrame)) area=\(String(describing: menuArea)) available=\(available)")
+#endif
+        return available
     }
     private func refresh() {
         item.button?.setAccessibilityValue(model.accessibilityValue)
