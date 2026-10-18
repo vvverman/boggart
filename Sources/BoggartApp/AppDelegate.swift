@@ -43,12 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.needsIntroduction || model.helperState != .enabled { controller.showSetup() }
     }
     @objc private func removeApp() { model.offerRemoval() }
-    @objc private func openPanel() { controller?.openKeyboard() }
+    @objc private func openPanel() { controller?.showControlWindow() }
     @objc private func openSettings() { controller?.showSettings() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if duplicateInstance { duplicatePresenter?.show(); return true }
         if model.needsIntroduction || model.helperState != .enabled { controller?.showSetup() }
-        else { controller?.openKeyboard() }
+        else { controller?.showControlWindow() }
         return true
     }
     func applicationDidBecomeActive(_ notification: Notification) {

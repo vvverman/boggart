@@ -36,6 +36,8 @@ import SwiftUI
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
             try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
             controller.dismiss()
+            try controller.captureControlWindow(to: directory.appendingPathComponent(active ? "independent-active.png" : "independent-inactive.png"))
+            try controller.verifyHiddenItemRecovery(to: directory.appendingPathComponent(active ? "hidden-item-active.png" : "hidden-item-inactive.png"))
         }
         print("SWIFTUI_VIEWS_RENDERED; NO_SLEEP_COMMANDS_SENT")
     }

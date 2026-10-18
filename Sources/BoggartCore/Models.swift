@@ -1,7 +1,7 @@
 import Foundation
 
 public enum BoggartConstants {
-    public static let version = "0.5.1"
+    public static let version = "0.5.2"
     public static let protocolVersion = 4
     #if BOGGART_HARDWARE_TESTING
     public static let hardwareTesting = true
