@@ -18,6 +18,17 @@ public enum DurationText {
         if value < 60 { return "меньше минуты" }
         return total >= 60 ? "\(total / 60) ч \(total % 60) мин" : "\(total) мин"
     }
+    /// Сотые секунды только для открытых представлений. До истечения срока
+    /// положительный остаток округляется вверх, а часы не сбрасываются после суток.
+    public static func precise(_ seconds: TimeInterval?) -> String {
+        guard let seconds, seconds.isFinite, seconds >= 0,
+              seconds < Double(Int64.max / 200) else { return "—" }
+        let ticks = Int64(ceil(seconds * 100))
+        let hours = ticks / 360_000
+        let minutes = (ticks / 6_000) % 60
+        let wholeSeconds = (ticks / 100) % 60
+        return String(format: "%02lld:%02lld:%02lld,%02lld", hours, minutes, wholeSeconds, ticks % 100)
+    }
     public static func menu(active: Bool, countdown: Bool, selectedHours: Int, remaining: TimeInterval?) -> String {
         if !active { return "\(Preferences.hours(selectedHours)) ч" }
         return countdown ? compact(remaining) : ""

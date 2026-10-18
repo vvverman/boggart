@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.setActivationPolicy(.accessory)
         let controller = StatusItemController(model: model); self.controller = controller
+        model.onNeedsSetup = { [weak controller] in controller?.showSetup() }
         model.onNeedsPanel = { [weak controller] in controller?.showAfterUserCommand() }
         let menu = NSMenu()
         let root = NSMenuItem(); menu.addItem(root)
@@ -23,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         open.target = self; appMenu.addItem(open)
         let settings = NSMenuItem(title: "Настройки…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self; appMenu.addItem(settings)
+        let remove = NSMenuItem(title: "Удалить Боггарт…", action: #selector(removeApp), keyEquivalent: "")
+        remove.target = self; appMenu.addItem(remove)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Завершить Боггарт", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         NSApp.mainMenu = menu
@@ -32,12 +35,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         }
         model.launch()
-        if model.needsIntroduction { controller.showAfterUserCommand() }
+        if model.needsIntroduction || model.helperState != .enabled { controller.showSetup() }
     }
+    @objc private func removeApp() { model.offerRemoval() }
     @objc private func openPanel() { controller?.openKeyboard() }
     @objc private func openSettings() { controller?.showSettings() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        controller?.openKeyboard(); return true
+        if model.needsIntroduction || model.helperState != .enabled { controller?.showSetup() }
+        else { controller?.openKeyboard() }
+        return true
     }
     func applicationDidBecomeActive(_ notification: Notification) { model.refreshSystemSettings() }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

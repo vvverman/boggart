@@ -21,13 +21,13 @@ assert 'case .disableSleep: return ["-a", "disablesleep", "1"]' in adapter
 info = plistlib.loads((root / 'Resources/Info.plist').read_bytes())
 job = plistlib.loads((root / 'Resources/local.boggart.helper.plist').read_bytes())
 assert info['LSUIElement'] is True
-assert info['CFBundleShortVersionString'] == '0.4.1'
+assert info['CFBundleShortVersionString'] == '0.5.0'
 assert info['BoggartRecoverySchema'] == 3
 assert info['BoggartProtocolVersion'] == 4
 assert info['BoggartHardwareTesting'] is False
 assert 'Отключить помощник' not in views
-assert 'DisclosureGroup("Диагностика"' in views
-assert 'DisclosureGroup("Последние сессии"' in views
+assert 'Диагностика' not in views
+assert 'Последние сессии' not in views
 assert 'lastAbnormalSummary' in views
 assert 'content.sound' not in text
 assert 'try history.append' not in (root / 'Sources/BoggartCore/SessionController.swift').read_text()
@@ -38,3 +38,9 @@ assert job['KeepAlive'] is True and job['UserName'] == 'root'
 assert job['MachServices']['local.boggart.helper'] is True
 assert 'Program' not in job and 'ProgramArguments' not in job
 print(f'Статическая проверка: {len(sources)} Swift-файлов, два переключателя, SMAppService/XPC, конфигурация комплекта — без ошибок.')
+
+assert "Divider()" not in views
+assert "NSPopover()" in (root / "Sources/BoggartApp/StatusItemController.swift").read_text()
+assert "beginInitialSetupOnce" in views
+assert "DurationText.precise" in views
+assert "SkatingSpider(monochrome: true)" in views

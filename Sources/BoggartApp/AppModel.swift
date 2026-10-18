@@ -16,7 +16,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var loginApprovalRequired = false
     @Published private(set) var helperState: SMAppService.Status = .notRegistered
     @Published private(set) var settingsBusy = false
-    @Published private(set) var history: [SessionRecord] = []
+    @Published var preciseClockVisible = false
     @Published private(set) var continuous = MacClock.continuous
     @Published private(set) var localPower = MacPower.snapshot()
     @Published private(set) var isQuitting = false
@@ -28,6 +28,8 @@ final class AppModel: ObservableObject {
     private var maintenanceCommitted = false
     private var restoreLoginOnFailure = false
     private var restoreHelperOnFailure = false
+    private var initialSetupStarted = false
+    var onNeedsSetup: (() -> Void)?
     var onNeedsPanel: (() -> Void)?
     private let defaults: UserDefaults
     private let client = ServiceClient()
@@ -44,9 +46,7 @@ final class AppModel: ObservableObject {
         selectedHours = Preferences.hours(defaults.object(forKey: "selectedHours") as? Int)
         showRemaining = Preferences.countdown(newValue: defaults.object(forKey: "showRemaining.v3") as? Bool,
                                                legacyMode: defaults.string(forKey: "displayMode"))
-        if let data = defaults.data(forKey: "history.v3"), let entries = try? JSONDecoder().decode([SessionRecord].self, from: data) {
-            history = Array(entries.prefix(5))
-        }
+        defaults.removeObject(forKey: "history.v3") // История больше не входит в интерфейс.
         client.onReply = { [weak self] in self?.receive($0) }
         client.onUnavailable = { [weak self] text in
             guard let self else { return }
@@ -146,7 +146,7 @@ final class AppModel: ObservableObject {
     }
     func toggle() {
         guard !busy else { return }
-        if needsIntroduction { onNeedsPanel?(); return }
+        if needsIntroduction || helperState != .enabled { onNeedsSetup?(); return }
         if recoveryRequired && connected { perform(.init(.recover)); return }
         if active { stop(); return }
         guard blockedReason == nil else {
@@ -195,11 +195,6 @@ final class AppModel: ObservableObject {
         continuous = MacClock.continuous; status = reply.status; connected = true; uncertain = false
         defaults.set(reply.status.phase != .inactive, forKey: "sessionNeedsConfirmation.v4")
         cleanUpdateBackupAfterConfirmation()
-        if reply.status.historyWarning != nil {
-            let ids = Set(reply.status.history.map(\.id))
-            history = Array((reply.status.history + history.filter { !ids.contains($0.id) }).prefix(5))
-        } else { history = Array(reply.status.history.prefix(5)) }
-        if let encoded = try? JSONEncoder().encode(history) { defaults.set(encoded, forKey: "history.v3") }
         notifier.receive(reply.status)
         let needsActivity = reply.status.phase == .active || reply.status.phase == .recoveryRequired
         if needsActivity && activity == nil {
@@ -215,7 +210,18 @@ final class AppModel: ObservableObject {
         loginEnabled = SMAppService.mainApp.status == .enabled
         loginApprovalRequired = SMAppService.mainApp.status == .requiresApproval
     }
-    /// Только явная кнопка. Ни hover, ни опрос состояния не вызывают register().
+    /// Первый явный запуск приложения сразу открывает настройку. Один запрос
+    /// регистрации на процесс: hover и heartbeat не открывают системные разрешения.
+    func beginInitialSetupOnce() {
+        guard !initialSetupStarted else { return }
+        initialSetupStarted = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.setupReady, !self.isQuitting else { return }
+            if self.helper.status == .requiresApproval { self.openSystemSettings() }
+            else if self.helper.status != .enabled { self.configureHelper() }
+        }
+    }
+    /// Не начинает удержание и не подтверждает системное разрешение за человека.
     func configureHelper() {
         guard !busy else { return }
         setupBlocker = BundleValidation.setupBlocker()
@@ -228,7 +234,6 @@ final class AppModel: ObservableObject {
             refreshSystemSettings()
             if helperState == .enabled { client.heartbeat() }
             if helperState == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-            notifier.requestAfterExplicitSetup()
         } catch {
             refreshSystemSettings()
             // SMAppService может зарегистрировать запрос и вернуть error 1,
@@ -238,8 +243,7 @@ final class AppModel: ObservableObject {
                 defaults.set(true, forKey: "helperEverConfigured.v4")
                 errorMessage = nil
                 SMAppService.openSystemSettingsLoginItems()
-                notifier.requestAfterExplicitSetup()
-            } else {
+                } else {
                 errorMessage = "Помощник не настроен. \(error.localizedDescription)"
             }
         }
@@ -287,7 +291,7 @@ final class AppModel: ObservableObject {
     var needsIntroduction: Bool { !introductionCompleted && !active && !attention }
     var setupReady: Bool { connected && status?.phase == .inactive && status?.capability.available == true }
     var lastAbnormalSummary: String? {
-        guard connected, let record = RecentSessionText.abnormalRecord(history, phase: status?.phase) else { return nil }
+        guard connected, let record = RecentSessionText.abnormalRecord(status?.history ?? [], phase: status?.phase) else { return nil }
         return RecentSessionText.summary(record)
     }
     func completeIntroduction() {
@@ -295,25 +299,8 @@ final class AppModel: ObservableObject {
         introductionCompleted = true
         defaults.set(true, forKey: "introductionCompleted.v4")
         errorMessage = nil
+        notifier.requestAfterExplicitSetup()
         // Закрытие введения никогда не вызывает start.
-    }
-    func copyDiagnostics() {
-        let rawState: String
-        switch helperState {
-        case .enabled: rawState = connected ? "подключён" : "ожидается связь"
-        case .notRegistered: rawState = "не настроен"
-        case .requiresApproval: rawState = "требуется разрешение"
-        case .notFound: rawState = "файлы не найдены"
-        @unknown default: rawState = "неизвестно"
-        }
-        let report = DiagnosticReport(appVersion: BoggartConstants.version,
-            osVersion: "\(ProcessInfo.processInfo.operatingSystemVersionString) (\(HardwareValidation.osBuild))",
-            model: HardwareValidation.machineModel, helperState: rawState,
-            phase: connected ? status?.phase : nil, sourceKnown: localPower.known,
-            externalPower: localPower.external, validationBuild: BoggartConstants.hardwareTesting,
-            historyWarning: status?.historyWarning != nil, lastReason: history.first?.reason)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(report.text, forType: .string)
     }
 
     func shutdown() {
@@ -321,6 +308,28 @@ final class AppModel: ObservableObject {
         if let activity { ProcessInfo.processInfo.endActivity(activity); self.activity = nil }
     }
 }
+
+#if BOGGART_UI_TESTING
+extension AppModel {
+    /// Изолированные данные только для компиляции приёмки UI. Нет launch(),
+    /// регистрации помощника, heartbeat и команд управления питанием.
+    static func preview(active: Bool = false, setup: Bool = false) -> AppModel {
+        let model = AppModel(defaults: UserDefaults(suiteName: "local.boggart.ui-preview")!)
+        model.initialSetupStarted = true
+        model.introductionCompleted = !setup
+        model.helperState = setup ? .requiresApproval : .enabled
+        model.connected = !setup
+        model.setupBlocker = nil
+        model.localPower = .init(external: true)
+        model.preciseClockVisible = true
+        model.status = .init(phase: active ? .active : .inactive,
+            session: active ? .init(id: UUID(), startedAt: Date(), deadline: MacClock.continuous + 7 * 3600 + 42 * 60 + 18.37, powerGraceDeadline: nil) : nil,
+            power: model.localPower, capability: .init(available: true, message: "Предпросмотр"),
+            message: "Предпросмотр", history: [])
+        return model
+    }
+}
+#endif
 
 extension AppModel {
     func offerRemoval() {

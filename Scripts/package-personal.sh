@@ -67,6 +67,8 @@ cp Resources/local.boggart.helper.plist "$APP/Contents/Library/LaunchDaemons/"
 /usr/libexec/PlistBuddy -c 'Set :BoggartHardwareTesting true' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Боггарт' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Add :BoggartDistribution string personal-preview' "$APP/Contents/Info.plist"
+./Scripts/artwork.sh
+cp build/visuals/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # Явное требование закрепляет точный сертификат и идентификатор каждого компонента.
 sign() {
     /usr/bin/codesign --force --options runtime --timestamp=none --keychain "$KEYCHAIN" \
@@ -81,15 +83,9 @@ sign "$APP" local.boggart.app
 python3 -c 'import subprocess,sys; subprocess.run(sys.argv[1:], check=True, timeout=30)' "$APP/Contents/MacOS/Boggart" --validate-bundle
 ./Scripts/smoke-personal.sh 2>&1 | tee build/personal-smoke.log
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-STAGE="$WORK/image"
-mkdir -p "$STAGE"
-/usr/bin/ditto "$APP" "$STAGE/Boggart.app"
-ln -s /Applications "$STAGE/Программы"
-cp Docs/Установка-личной-сборки.txt "$STAGE/Установка.txt"
-/usr/bin/hdiutil create -volname "Боггарт $VERSION" -srcfolder "$STAGE" -ov -format UDZO "dist/Boggart-$VERSION.dmg"
-/usr/bin/hdiutil verify "dist/Boggart-$VERSION.dmg"
+./Scripts/create-dmg.sh "$APP" "dist/Boggart-$VERSION.dmg"
 /usr/bin/ditto -c -k --keepParent "$APP" "dist/Boggart-$VERSION.zip"
-cp Docs/Установка-личной-сборки.txt dist/Установка.txt
+cp Docs/Установка-личной-сборки.txt dist/INSTALL.txt
 (cd dist && /usr/bin/shasum -a 256 "Boggart-$VERSION.dmg" "Boggart-$VERSION.zip" > SHA256SUMS.txt)
 # В артефакты попадают только готовые пакеты, текст и публичные журналы.
 printf 'PACKAGED: %s\n' "dist/Boggart-$VERSION.dmg"

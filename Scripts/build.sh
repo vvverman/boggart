@@ -48,6 +48,8 @@ if [[ "$MODE" == 1 ]]; then
     /usr/libexec/PlistBuddy -c 'Set :BoggartHardwareTesting true' "$APP/Contents/Info.plist"
     /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Боггарт — проверочная сборка' "$APP/Contents/Info.plist"
 fi
+./Scripts/artwork.sh
+cp build/visuals/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 /usr/bin/codesign --force --options runtime --timestamp --sign "$IDENTITY" --identifier local.boggart.helper "$APP/Contents/MacOS/BoggartHelper"
 /usr/bin/codesign --force --options runtime --timestamp --sign "$IDENTITY" --identifier local.boggart.app "$APP"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
