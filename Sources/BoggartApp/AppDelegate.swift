@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.dismiss()
         _ = applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+        // AppKit создаёт и размещает новое окно в следующем обороте run loop.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         try controller.verifyAlreadyVisibleControlWindowForCI(to: directory.appendingPathComponent("reopen-\(active)-\(previewLogin).png"))
         guard let stop = applicationDockMenu(NSApp)?.items.first(where: { $0.title == "Остановить удержание" }),
               stop.isEnabled == active else { throw NSError(domain: "DockStopCI", code: 4) }
