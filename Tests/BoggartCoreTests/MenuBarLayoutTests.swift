@@ -51,4 +51,15 @@ final class MenuBarLayoutTests: XCTestCase {
     func testManyHourDigitsReevaluateWidth() {
         XCTAssertTrue(MenuBarLayout.needsCompact(frame: frame(840), area: right, expandedWidth: 100, wasCompact: false))
     }
+    func testSystemButtonVerticalInsetRemainsAccessible() {
+        let area = CGRect(x: 0, y: 746, width: 1024, height: 22)
+        let button = CGRect(x: 761, y: 742, width: 22, height: 22)
+        XCTAssertTrue(MenuBarLayout.contains(button, in: area))
+        XCTAssertFalse(MenuBarLayout.needsCompact(frame: button, area: area, expandedWidth: 60, wasCompact: true))
+    }
+    func testButtonWithCenterBelowMenuRemainsUnavailable() {
+        let area = CGRect(x: 0, y: 746, width: 1024, height: 22)
+        let button = CGRect(x: 761, y: 730, width: 22, height: 22)
+        XCTAssertFalse(MenuBarLayout.contains(button, in: area))
+    }
 }

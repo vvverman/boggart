@@ -5,10 +5,13 @@ import CoreGraphics
 
 /// Геометрия только нашего значка. Не переставляет чужие элементы строки меню.
 public enum MenuBarLayout {
+    // Горизонтальные края не должны заходить под вырез. Вертикаль проверяется
+    // по центру: AppKit может смещать кнопку ниже логической высоты строки меню.
+    // На macOS 26 в CI получено y=742,h=22 при области y=746,h=22.
     public static func contains(_ frame: CGRect?, in area: CGRect?) -> Bool {
         guard let frame, let area, valid(frame), valid(area) else { return false }
         return frame.minX >= area.minX && frame.maxX <= area.maxX &&
-            frame.minY >= area.minY && frame.maxY <= area.maxY
+            frame.midY >= area.minY && frame.midY <= area.maxY
     }
 
     /// Строка меню растёт влево от правого края значка. При восстановлении
