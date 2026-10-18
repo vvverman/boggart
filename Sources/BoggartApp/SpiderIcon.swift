@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Один векторный персонаж для значка приложения и монохромной строки меню.
-/// Геометрия нормализована к 100 × 100; в маленьком размере остаётся силуэт.
+/// Геометрический знак: восемь лап, ролики и сквозной просвет в корпусе.
+/// Один цвет, без лица и иллюстративных деталей. Просветы действительно прозрачны.
 struct SkatingSpider: View {
     var monochrome = false
     var body: some View {
@@ -9,46 +9,56 @@ struct SkatingSpider: View {
             let scale = min(size.width, size.height) / 100
             context.translateBy(x: (size.width - scale * 100) / 2, y: (size.height - scale * 100) / 2)
             context.scaleBy(x: scale, y: scale)
-            let ink = monochrome ? Color.primary : Color(red: 0.12, green: 0.14, blue: 0.24)
-            let boot = monochrome ? ink : Color(red: 1.0, green: 0.39, blue: 0.22)
-            let legs: [[CGPoint]] = [
-                [.init(x: 37, y: 37), .init(x: 24, y: 23), .init(x: 12, y: 30)],
-                [.init(x: 36, y: 45), .init(x: 18, y: 39), .init(x: 8, y: 47)],
-                [.init(x: 63, y: 37), .init(x: 76, y: 23), .init(x: 88, y: 30)],
-                [.init(x: 64, y: 45), .init(x: 82, y: 39), .init(x: 92, y: 47)],
-                [.init(x: 39, y: 57), .init(x: 21, y: 60), .init(x: 17, y: 72)],
-                [.init(x: 45, y: 62), .init(x: 39, y: 67), .init(x: 39, y: 79)],
-                [.init(x: 55, y: 62), .init(x: 61, y: 67), .init(x: 61, y: 79)],
-                [.init(x: 61, y: 57), .init(x: 79, y: 60), .init(x: 83, y: 72)]
-            ]
-            for p in legs {
-                var path = Path(); path.move(to: p[0]); path.addQuadCurve(to: p[2], control: p[1])
-                context.stroke(path, with: .color(ink), style: StrokeStyle(lineWidth: monochrome ? 5 : 5.5, lineCap: .round, lineJoin: .round))
-            }
-            let body = Path(ellipseIn: CGRect(x: 29, y: 24, width: 42, height: 42))
-            if monochrome { context.fill(body, with: .color(ink)) }
-            else {
-                context.fill(body, with: .linearGradient(Gradient(colors: [Color(red: 0.31, green: 0.34, blue: 0.50), ink]),
-                    startPoint: .init(x: 37, y: 27), endPoint: .init(x: 61, y: 66)))
-            }
-            // Четыре ролика на опорных лапах. Ещё четыре лапы удерживают равновесие.
-            for (x, y) in [(17.0, 72.0), (39.0, 79.0), (61.0, 79.0), (83.0, 72.0)] {
-                let shoe = CGRect(x: x - 7, y: y - 4, width: 15, height: 8)
-                context.fill(Path(roundedRect: shoe, cornerRadius: 3), with: .color(boot))
-                for wheelX in [x - 4, x + 5] {
-                    context.fill(Path(ellipseIn: CGRect(x: wheelX - 2.6, y: y + 6, width: 5.2, height: 5.2)), with: .color(ink))
+            let ink = Color.primary
+            context.drawLayer { mark in
+                for mirror in [false, true] {
+                    func p(_ x: Double, _ y: Double) -> CGPoint { .init(x: mirror ? 100 - x : x, y: y) }
+                    for points in [[p(38, 31), p(25, 19), p(13, 19)],
+                                   [p(35, 40), p(20, 34), p(10, 40)],
+                                   [p(35, 50), p(18, 51), p(10, 62)],
+                                   [p(40, 61), p(30, 71), p(30, 76)]] {
+                        var leg = Path(); leg.move(to: points[0]); leg.addLines(Array(points.dropFirst()))
+                        mark.stroke(leg, with: .color(ink), style: StrokeStyle(lineWidth: 7, lineCap: .square, lineJoin: .miter))
+                    }
+                    mark.fill(Path(roundedRect: CGRect(x: mirror ? 55 : 22, y: 71, width: 23, height: 9), cornerRadius: 2), with: .color(ink))
                 }
-            }
-            if !monochrome {
-                for x in [41.0, 58.0] {
-                    context.fill(Path(ellipseIn: CGRect(x: x - 5.5, y: 39, width: 11, height: 13)), with: .color(.white))
-                    context.fill(Path(ellipseIn: CGRect(x: x - 1, y: 44, width: 4.5, height: 6)), with: .color(ink))
+                var body = Path()
+                body.move(to: .init(x: 50, y: 19))
+                body.addLines([.init(x: 65, y: 28), .init(x: 68, y: 47), .init(x: 60, y: 63),
+                               .init(x: 50, y: 69), .init(x: 40, y: 63), .init(x: 32, y: 47), .init(x: 35, y: 28)])
+                body.closeSubpath(); mark.fill(body, with: .color(ink))
+                for x in [27.0, 40.0, 60.0, 73.0] {
+                    mark.fill(Path(ellipseIn: .init(x: x - 5, y: 83, width: 10, height: 10)), with: .color(ink))
                 }
-                var smile = Path(); smile.move(to: .init(x: 46, y: 57))
-                smile.addQuadCurve(to: .init(x: 54, y: 57), control: .init(x: 50, y: 60))
-                context.stroke(smile, with: .color(.white.opacity(0.75)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                mark.blendMode = .destinationOut
+                var aperture = Path()
+                aperture.move(to: .init(x: 50, y: 31))
+                aperture.addLines([.init(x: 57, y: 41), .init(x: 50, y: 55), .init(x: 43, y: 41)])
+                aperture.closeSubpath(); mark.fill(aperture, with: .color(.black))
             }
         }.accessibilityHidden(true)
+    }
+}
+
+/// Не галочка и не просто перечёркнутый месяц: явное «сон запрещён».
+struct NoSleepSymbol: View {
+    var body: some View {
+        Canvas { context, size in
+            let s = min(size.width, size.height) / 24
+            context.translateBy(x: (size.width - s * 24) / 2, y: (size.height - s * 24) / 2)
+            context.scaleBy(x: s, y: s)
+            context.drawLayer { moon in
+                moon.fill(Path(ellipseIn: .init(x: 6.8, y: 5.2, width: 10.7, height: 13.6)), with: .foreground)
+                moon.blendMode = .destinationOut
+                moon.fill(Path(ellipseIn: .init(x: 10.3, y: 3.4, width: 11, height: 12)), with: .color(.black))
+                var slash = Path(); slash.move(to: .init(x: 5, y: 5)); slash.addLine(to: .init(x: 19, y: 19))
+                moon.stroke(slash, with: .color(.black), style: .init(lineWidth: 4, lineCap: .round))
+            }
+            context.stroke(Path(ellipseIn: .init(x: 1.4, y: 1.4, width: 21.2, height: 21.2)),
+                with: .foreground, style: .init(lineWidth: 1.8))
+            var slash = Path(); slash.move(to: .init(x: 4.6, y: 4.6)); slash.addLine(to: .init(x: 19.4, y: 19.4))
+            context.stroke(slash, with: .foreground, style: .init(lineWidth: 1.8, lineCap: .round))
+        }.accessibilityLabel("Сон запрещён")
     }
 }
 
@@ -57,18 +67,13 @@ struct BoggartAppIcon: View {
         GeometryReader { proxy in
             let s = min(proxy.size.width, proxy.size.height)
             ZStack {
-                RoundedRectangle(cornerRadius: s * 0.22, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(red: 0.94, green: 0.97, blue: 1), Color(red: 0.74, green: 0.85, blue: 0.98)],
+                RoundedRectangle(cornerRadius: s * 0.215, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(red: 0.19, green: 0.22, blue: 0.26), Color(red: 0.07, green: 0.09, blue: 0.12)],
                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: s * 0.22, style: .continuous)
-                            .strokeBorder(.white.opacity(0.7), lineWidth: max(1, s * 0.007))
-                    }
-                SkatingSpider().padding(s * 0.055)
-                    .shadow(color: Color(red: 0.15, green: 0.23, blue: 0.4).opacity(0.15), radius: s * 0.016, y: s * 0.012)
+                SkatingSpider(monochrome: true).environment(\.colorScheme, .dark).padding(s * 0.115)
             }
-            .padding(s * 0.065)
-            .shadow(color: .black.opacity(0.15), radius: s * 0.025, y: s * 0.015)
+            .padding(s * 0.075)
+            .shadow(color: .black.opacity(0.2), radius: s * 0.018, y: s * 0.012)
         }.accessibilityHidden(true)
     }
 }

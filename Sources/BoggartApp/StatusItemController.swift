@@ -30,6 +30,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     init(model: AppModel) {
         self.model = model
         super.init()
+        IdleLockController.shared.attach(model)
+        item.autosaveName = "BoggartStatusItem"
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self
@@ -107,6 +109,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         case .show:
             guard let button = item.button, button.window != nil else { return }
             updateSize()
+            popover.positioningRect = button.bounds
             if !popover.isShown {
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             }
@@ -123,8 +126,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         guard let host else { return }
         host.view.layoutSubtreeIfNeeded()
         let size = host.view.fittingSize
-        let newSize = NSSize(width: 320, height: max(100, size.height))
-        if popover.contentSize != newSize { popover.contentSize = newSize }
+        let newSize = NSSize(width: ControlPanelView.width, height: max(100, size.height))
+        if popover.contentSize != newSize {
+            host.preferredContentSize = newSize
+            popover.contentSize = newSize
+        }
+        if popover.isShown, let button = item.button { popover.positioningRect = button.bounds }
     }
     func popoverDidClose(_ notification: Notification) {
         _ = interaction.receive(.dismiss, at: MacClock.continuous)
@@ -175,7 +182,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
         let gap = anchor.minY - panelWindow.frame.maxY
         guard gap <= 12 && gap >= -32 else { throw NSError(domain: "PopoverGap", code: Int(gap)) }
-        print("POPOVER_ANCHOR_GAP_POINTS=\(gap)")
+        let contentTop = panelWindow.convertToScreen(host!.view.convert(host!.view.bounds, to: nil)).maxY
+        let contentGap = anchor.minY - contentTop
+        guard contentGap <= 18 && contentGap >= -32 else { throw NSError(domain: "PopoverContentGap", code: Int(contentGap)) }
+        print("POPOVER_ANCHOR_GAP_POINTS=\(gap); CONTENT_GAP_POINTS=\(contentGap)")
         try UISnapshots.capture(content, to: url)
     }
 #endif

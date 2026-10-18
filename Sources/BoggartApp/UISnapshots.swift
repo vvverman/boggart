@@ -28,12 +28,14 @@ import SwiftUI
             try render(SetupView(model: setup, done: {}).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("setup-\(name).png"))
         }
         NSApp.appearance = NSAppearance(named: .aqua)
-        let controller = StatusItemController(model: .preview(active: true))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        controller.openKeyboard()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        try controller.capturePopover(to: directory.appendingPathComponent("system-popover.png"))
-        controller.dismiss()
+        for active in [false, true] {
+            let controller = StatusItemController(model: .preview(active: active))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            controller.openKeyboard()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
+            controller.dismiss()
+        }
         print("SWIFTUI_VIEWS_RENDERED; NO_SLEEP_COMMANDS_SENT")
     }
     private static func render<V: View>(_ view: V, to url: URL) throws {
