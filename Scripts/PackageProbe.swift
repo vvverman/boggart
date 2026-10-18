@@ -39,6 +39,8 @@ guard ["xpc", "reject"].contains(mode), CommandLine.arguments.count == 3 else { 
 let digest = CommandLine.arguments[2]
 guard digest.count == 40, digest.allSatisfy({ $0.isHexDigit }) else { exit(64) }
 let rejecting = mode == "reject"
+let expectedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+if !rejecting && expectedVersion == nil { fputs("Missing app version in probe bundle\n", stderr); exit(1) }
 let connection = NSXPCConnection(machServiceName: "local.boggart.helper", options: .privileged)
 connection.setCodeSigningRequirement("identifier \"local.boggart.helper\" and certificate leaf = H\"\(digest)\"")
 connection.remoteObjectInterface = NSXPCInterface(with: ProbeProtocol.self)
@@ -54,7 +56,7 @@ proxy.perform(request) { data in
         let value = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard let status = value?["status"] as? [String: Any],
               status["phase"] as? String == "inactive",
-              status["helperVersion"] as? String == "0.4.1",
+              status["helperVersion"] as? String == expectedVersion,
               value?["error"] == nil else {
             fputs("Unexpected reply: \(String(decoding: data, as: UTF8.self))\n", stderr); exit(1)
         }
