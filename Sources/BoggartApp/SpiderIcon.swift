@@ -1,15 +1,16 @@
 import SwiftUI
 
 /// Геометрический знак: восемь лап, ролики и сквозной просвет в корпусе.
-/// Один цвет, без лица и иллюстративных деталей. Просветы действительно прозрачны.
+/// Просветы действительно прозрачны, а пересечения не удваивают непрозрачность.
 struct SkatingSpider: View {
     var monochrome = false
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
         Canvas { context, size in
             let scale = min(size.width, size.height) / 100
             context.translateBy(x: (size.width - scale * 100) / 2, y: (size.height - scale * 100) / 2)
             context.scaleBy(x: scale, y: scale)
-            let ink = Color.primary
+            let ink: Color = scheme == .dark ? .white : .black
             context.drawLayer { mark in
                 for mirror in [false, true] {
                     func p(_ x: Double, _ y: Double) -> CGPoint { .init(x: mirror ? 100 - x : x, y: y) }
@@ -17,15 +18,19 @@ struct SkatingSpider: View {
                                    [p(35, 40), p(20, 34), p(10, 40)],
                                    [p(35, 50), p(18, 51), p(10, 62)],
                                    [p(40, 61), p(30, 71), p(30, 76)]] {
-                        var leg = Path(); leg.move(to: points[0]); leg.addLines(Array(points.dropFirst()))
+                        var leg = Path()
+                        leg.move(to: points[0])
+                        for point in points.dropFirst() { leg.addLine(to: point) }
                         mark.stroke(leg, with: .color(ink), style: StrokeStyle(lineWidth: 7, lineCap: .square, lineJoin: .miter))
                     }
                     mark.fill(Path(roundedRect: CGRect(x: mirror ? 55 : 22, y: 71, width: 23, height: 9), cornerRadius: 2), with: .color(ink))
                 }
                 var body = Path()
                 body.move(to: .init(x: 50, y: 19))
-                body.addLines([.init(x: 65, y: 28), .init(x: 68, y: 47), .init(x: 60, y: 63),
-                               .init(x: 50, y: 69), .init(x: 40, y: 63), .init(x: 32, y: 47), .init(x: 35, y: 28)])
+                for point in [CGPoint(x: 65, y: 28), .init(x: 68, y: 47), .init(x: 60, y: 63),
+                              .init(x: 50, y: 69), .init(x: 40, y: 63), .init(x: 32, y: 47), .init(x: 35, y: 28)] {
+                    body.addLine(to: point)
+                }
                 body.closeSubpath(); mark.fill(body, with: .color(ink))
                 for x in [27.0, 40.0, 60.0, 73.0] {
                     mark.fill(Path(ellipseIn: .init(x: x - 5, y: 83, width: 10, height: 10)), with: .color(ink))
@@ -33,14 +38,16 @@ struct SkatingSpider: View {
                 mark.blendMode = .destinationOut
                 var aperture = Path()
                 aperture.move(to: .init(x: 50, y: 31))
-                aperture.addLines([.init(x: 57, y: 41), .init(x: 50, y: 55), .init(x: 43, y: 41)])
+                for point in [CGPoint(x: 57, y: 41), CGPoint(x: 50, y: 55), CGPoint(x: 43, y: 41)] {
+                    aperture.addLine(to: point)
+                }
                 aperture.closeSubpath(); mark.fill(aperture, with: .color(.black))
             }
         }.accessibilityHidden(true)
     }
 }
 
-/// Не галочка и не просто перечёркнутый месяц: явное «сон запрещён».
+/// Месяц в круге с диагональной чертой: «сон запрещён».
 struct NoSleepSymbol: View {
     var body: some View {
         Canvas { context, size in
