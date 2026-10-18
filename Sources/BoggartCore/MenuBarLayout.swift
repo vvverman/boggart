@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// Геометрия только нашего значка. Не переставляет чужие элементы строки меню.
 public enum MenuBarLayout {
