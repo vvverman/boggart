@@ -4,7 +4,11 @@ import SwiftUI
 
 /// Собирается только в отдельный исполняемый файл приёмки. В поставке кода нет.
 @MainActor enum UISnapshots {
-    static func run(directory: URL) throws {
+    nonisolated static func run(directory: URL) throws {
+        precondition(Thread.isMainThread)
+        try MainActor.assumeIsolated { try renderAll(directory: directory) }
+    }
+    private static func renderAll(directory: URL) throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -16,8 +20,11 @@ import SwiftUI
             for (state, model) in [("inactive", off), ("active", on)] {
                 try render(ControlPanelView(model: model, openSettings: {}, openSetup: {}, dismiss: {}, quit: {}, hover: { _ in }, editing: { _ in })
                     .environment(\.colorScheme, scheme), to: directory.appendingPathComponent("panel-\(state)-\(name).png"))
+                try render(SettingsView(model: model).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("settings-\(state)-\(name).png"))
+                // Возвращаем тестовое состояние после onAppear настроек, не отправляя команд помощнику.
+                let statusModel = AppModel.preview(active: state == "active")
+                try render(StatusLabelView(model: statusModel).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("status-\(state)-\(name).png"))
             }
-            try render(SettingsView(model: off).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("settings-\(name).png"))
             try render(SetupView(model: setup, done: {}).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("setup-\(name).png"))
         }
         NSApp.appearance = NSAppearance(named: .aqua)
@@ -40,11 +47,14 @@ import SwiftUI
         try capture(host, to: url)
         window.orderOut(nil)
     }
-    static func capture(_ view: NSView, to url: URL) throws {
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw NSError(domain: "UICapture", code: 1) }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { throw NSError(domain: "UICapture", code: 2) }
-        try data.write(to: url)
+    nonisolated static func capture(_ view: NSView, to url: URL) throws {
+        precondition(Thread.isMainThread)
+        try MainActor.assumeIsolated {
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw NSError(domain: "UICapture", code: 1) }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png, properties: [:]) else { throw NSError(domain: "UICapture", code: 2) }
+            try data.write(to: url)
+        }
     }
 }
 #endif
