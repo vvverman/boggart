@@ -29,13 +29,20 @@ import SwiftUI
             try render(SetupView(model: setup, done: {}).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("setup-\(name).png"))
         }
         NSApp.appearance = NSAppearance(named: .aqua)
-        for active in [false, true] {
-            let controller = StatusItemController(model: .preview(active: active))
-            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        // Сначала проверяем обычные popover обеих моделей. Имитация исчезновения
+        // значка выполняется отдельной фазой: удаление и немедленное создание
+        // statusItem с одним autosaveName ещё не завершает системную перекладку.
+        let cases = [false, true].map { active in
+            (active, StatusItemController(model: .preview(active: active)))
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        for (active, controller) in cases {
             controller.openKeyboard()
             RunLoop.main.run(until: Date().addingTimeInterval(0.5))
             try controller.capturePopover(to: directory.appendingPathComponent(active ? "system-popover.png" : "system-popover-inactive.png"))
             controller.dismiss()
+        }
+        for (active, controller) in cases {
             try controller.captureControlWindow(to: directory.appendingPathComponent(active ? "independent-active.png" : "independent-inactive.png"))
             try controller.verifyHiddenItemRecovery(to: directory.appendingPathComponent(active ? "hidden-item-active.png" : "hidden-item-inactive.png"))
         }
