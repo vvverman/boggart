@@ -55,11 +55,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var maintenanceWindow: NSWindowController?
     private var observers: [NSObjectProtocol] = []
 
-    init(model: AppModel) {
+    init(model: AppModel, autosaveName: String = "BoggartStatusItem") {
         self.model = model
         super.init()
         IdleLockController.shared.attach(model)
-        item.autosaveName = "BoggartStatusItem"
+        item.autosaveName = autosaveName
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self

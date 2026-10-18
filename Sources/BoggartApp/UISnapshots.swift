@@ -29,11 +29,12 @@ import SwiftUI
             try render(SetupView(model: setup, done: {}).environment(\.colorScheme, scheme), to: directory.appendingPathComponent("setup-\(name).png"))
         }
         NSApp.appearance = NSAppearance(named: .aqua)
-        // Сначала проверяем обычные popover обеих моделей. Имитация исчезновения
-        // значка выполняется отдельной фазой: удаление и немедленное создание
-        // statusItem с одним autosaveName ещё не завершает системную перекладку.
+        // У разных тестовых statusItem разные autosaveName. В приложении всегда
+        // один контроллер и постоянное имя; здесь две изолированные модели.
+        // Имитация исчезновения значка выполняется после проверки обоих popover.
         let cases = [false, true].map { active in
-            (active, StatusItemController(model: .preview(active: active)))
+            (active, StatusItemController(model: .preview(active: active),
+                autosaveName: "Boggart-UI-\(active)-\(UUID().uuidString)"))
         }
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         for (active, controller) in cases {
